@@ -1,6 +1,6 @@
 [project]
 name = "ki-kb"
-version = "0.43.0"
+version = "0.1.0"
 description = "kio knowledge base: Temporal ingest workers and the kb-query service, on Graphiti + FalkorDB"
 license = "Apache-2.0"
 requires-python = ">=3.13"

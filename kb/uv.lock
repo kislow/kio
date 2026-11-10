@@ -596,7 +596,7 @@ wheels = [
 
 [[package]]
 name = "ki-kb"
-version = "0.43.0"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
