@@ -1,0 +1,22 @@
+sensitive_brains: [client]
+identities:
+  personal: {github_user: alice, email: me@example.com, credential: personal, ingest: true}
+  client-a: {github_user: alice-clienta, email: alice@client-a.com, credential: client-a, vault: false, ingest: true}
+projects:
+  - name: acme
+    repo: git@github.com:Client-A/Acme.git
+    identity: client-a
+    brains: [acme, voice]
+    board: Acme
+    ingest:
+      - {path: docs/, brain: acme}
+      - {path: docs/patterns/, brain: cortex}
+  - name: payments-docs
+    repo: https://github.com/client-a/payments
+    identity: client-a
+    brains: [acme]
+  - name: payments-client
+    repo: https://github.com/client-a/payments
+    identity: client-a
+    brains: [client]
+    ingest: [{path: docs/, brain: client}]

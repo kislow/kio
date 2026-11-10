@@ -1,0 +1,30 @@
+# Projects for the local stack. The ingest worker reads this file, and so does
+# the ki CLI when `ki setup config deploy/compose/config` links this directory.
+#
+# Replace the example repo with a GitHub repository whose read-only token you
+# put in local/git-tokens/me (see docs/local-stack.md). smoke-test.sh swaps in
+# the origin of your checkout for one run and leaves this file as it is.
+#
+# Validate after editing:
+#   go run ./cmd/ki validate deploy/compose/config/projects.yaml
+#   (cd kb && uv run python -m ki_kb.projects ../deploy/compose/config/projects.yaml)
+
+sensitive_brains: []
+
+identities:
+  me:
+    github_user: alice
+    email: alice@example.com
+    credential: me
+    ingest: true
+
+projects:
+  - name: harness-docs
+    repo: https://github.com/example/kio
+    identity: me
+    brains: [cortex]
+    ingest:
+      - path: README.md
+        brain: cortex
+      - path: docs
+        brain: cortex

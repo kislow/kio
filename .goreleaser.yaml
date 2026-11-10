@@ -1,0 +1,33 @@
+# Release binaries for the ki CLI: git tag v0.1.0 && git push --tags
+version: 2
+project_name: kio
+
+builds:
+  - id: ki
+    main: ./cmd/ki
+    binary: ki
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{ .Version }}"]
+
+archives:
+  - formats: [tar.gz]
+    name_template: "kio_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, NOTICE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+# release-please already created the release with CHANGELOG.md's notes:
+# keep them, attach the binaries, and list the images published with it.
+release:
+  mode: keep-existing
+  footer: |
+    **Images (linux/amd64)**
+    - `{{ .Env.KI_IMAGE_REGISTRY }}/{{ .Env.KI_IMAGE_PREFIX }}-mcp:{{ .Env.KI_IMAGE_TAG }}` (also `{{ .Env.KI_SHA_TAG }}`)
+    - `{{ .Env.KI_IMAGE_REGISTRY }}/{{ .Env.KI_IMAGE_PREFIX }}-kb:{{ .Env.KI_IMAGE_TAG }}` (also `{{ .Env.KI_SHA_TAG }}`)
+
+changelog:
+  disable: true

@@ -1,0 +1,6 @@
+sensitive_brains: [client]
+identities:
+  personal: {github_user: alice, email: me@example.com, credential: personal, ingest: true}
+  other: {github_user: other, email: o@example.com, credential: other, ingest: true}
+projects:
+  - {name: x, repo: https://github.com/a/b, identity: personal, brains: [voice], ingest: [{path: a/, brain: client}]}

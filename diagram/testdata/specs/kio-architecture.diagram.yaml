@@ -1,0 +1,232 @@
+title: kio architecture
+tags: [diagram, kio, architecture]
+pages:
+  - name: Why kio
+    intro:
+      title: Why kio
+      about: AI agents start every session from zero. The harness hands each one the context you carry in your head, scoped to the project and trimmed to a token budget, whichever model runs it.
+    shapes:
+      - {group: without, x: 0, y: 0, w: 640, h: 600, label: Without the harness}
+      - {box: w-new, x: 40, y: 60, label: new session}
+      - {box: w-explore, x: 40, y: 250, label: explores the repo}
+      - {box: w-guess, x: 40, y: 440, label: "guesses decisions\nand conventions"}
+      - {box: w-cost, x: 370, y: 250, label: "tokens spent,\nanswers drift", dash: dashed}
+      - {line: w1, from: w-new, to: w-explore, head: true}
+      - {line: w2, from: w-explore, to: w-guess, head: true}
+      - {line: w3, from: w-explore, to: w-cost, dash: dashed}
+      - {group: with, x: 800, y: 0, w: 640, h: 600, label: With kio}
+      - {box: h-new, x: 840, y: 60, label: new session, color: path}
+      - {box: h-ask, x: 840, y: 250, label: get_context, color: path}
+      - {box: h-pack, x: 840, y: 440, label: context pack, color: path}
+      - {box: h-gain, x: 1170, y: 250, label: "same context,\nany model", color: path}
+      - {line: h1, from: h-new, to: h-ask, color: path, head: true}
+      - {line: h2, from: h-ask, to: h-pack, color: path, head: true}
+      - {line: h3, from: h-ask, to: h-gain, color: path}
+      - {caption: c1, x: 0, y: 700, w: 1440, text: "Nothing is written into project repos: projects, brains and identities live in kio, notes in the vault, knowledge in the cluster."}
+  - name: Overview
+    intro:
+      title: kio at a glance
+      about: Agents on your devices reach ki-mcp over your VPN, and it answers from the FalkorDB brains. kb-worker fills those brains from GitHub every 5 minutes; Argo CD deploys it all from a pinned release.
+    outro:
+      title: Explaining it in one minute
+      body: "Every AI agent starts from zero: it does not know our conventions, past decisions or what is running. kio fixes that. Everything I write, repos, notes, reviews, decisions and incidents, is turned into knowledge graphs, one per project, called brains. When I start an agent with ki, it works out which project and identity I am in; before planning, the agent asks ki-mcp for a context pack with that project's conventions, decisions and current state, trimmed to a budget. Each machine's token limits which brains it may read, everything runs on my own cluster behind my VPN, and a new note from any device is ingested within about ten minutes.\n\nWalking someone through it: start on Why, then this page, then tell the story on One note, end to end. Keep the other pages for questions, and the Glossary for new words."
+    shapes:
+      - {group: devices, x: 0, y: 170, w: 310, h: 420, label: Your devices}
+      - {box: laptop, x: 40, y: 220, label: ki + agents, color: path}
+      - {stack: phone, x: 40, y: 440, label: Phone}
+      - {group: edge, x: 400, y: 300, w: 290, h: 210, label: VPN edge}
+      - {box: nginx, x: 430, y: 350, label: TLS proxy, color: path}
+      - {group: cluster, x: 790, y: 60, w: 760, h: 780, label: the Kubernetes cluster}
+      - {box: mcp, x: 840, y: 120, label: ki-mcp, color: path}
+      - {box: query, x: 840, y: 380, label: kb-query, color: path}
+      - {stack: brains, x: 840, y: 640, label: FalkorDB brains}
+      - {box: temporal, x: 1270, y: 120, label: Temporal}
+      - {box: worker, x: 1270, y: 380, label: kb-worker}
+      - {box: argo, x: 1270, y: 640, label: Argo CD}
+      - {group: github, x: 1650, y: 230, w: 310, h: 560, label: GitHub}
+      - {stack: repos, x: 1690, y: 300, label: repos + vault}
+      - {box: gitops, x: 1690, y: 600, label: "kio\n+ GitOps repo"}
+      - {box: anthropic, x: 1690, y: 30, h: 90, label: Anthropic/DeepSeek, color: external}
+      - {box: secretstore, x: 1690, y: 940, label: Secrets manager, color: external}
+      - {line: l-n, from: laptop, to: nginx, label: MCP, color: path}
+      - {line: n-m, from: nginx, to: mcp, label: HTTPS, color: path}
+      - {line: m-q, from: mcp, to: query, color: path}
+      - {line: q-b, from: query, to: brains, label: search, color: path}
+      - {line: t-w, from: temporal, to: worker, label: every 5 min}
+      - {line: w-b, from: worker, to: brains, label: write}
+      - {line: w-r, from: worker, to: repos, label: clone}
+      - {line: w-a, from: worker, to: anthropic, label: extract, color: external}
+      - {line: a-g, from: argo, to: gitops, label: GitOps}
+      - {line: bw-c, from: secretstore, to: argo, label: secrets, color: external, label_position: 0.35}
+  - name: One note, end to end
+    intro:
+      title: One note, end to end
+      about: A decision typed on your phone becomes context for every agent working on that project, about ten minutes later. Follow the numbers.
+    shapes:
+      - {box: phone, x: 0, y: 0, w: 250, label: "1. phone\na new note"}
+      - {box: sync, x: 450, y: 0, w: 250, label: 2. Obsidian Sync, color: external}
+      - {box: pusher, x: 900, y: 0, w: 250, label: 3. vault-pusher}
+      - {box: vault, x: 1350, y: 0, w: 250, label: 4. vault repo}
+      - {box: worker, x: 1350, y: 330, w: 250, label: 5. kb-worker}
+      - {stack: brain, x: 900, y: 330, w: 250, label: 6. work brain}
+      - {box: mcp, x: 450, y: 330, w: 250, label: 7. ki-mcp, color: path}
+      - {box: agent, x: 0, y: 330, w: 250, label: "8. Claude Code\nin a work repo", color: path}
+      - {line: l1, from: phone, to: sync, label: syncs, color: external, head: true}
+      - {line: l2, from: sync, to: pusher, label: live, color: external, head: true}
+      - {line: l3, from: pusher, to: vault, label: when quiet, head: true}
+      - {line: l4, from: vault, to: worker, label: every 5 min, head: true}
+      - {line: l5, from: worker, to: brain, label: facts, head: true}
+      - {line: l6, from: brain, to: mcp, label: search, color: path, head: true}
+      - {line: l7, from: mcp, to: agent, label: context pack, color: path, head: true}
+      - {caption: c1, x: 0, y: 560, w: 1600, text: The agent asks with get_context before it plans; the decision arrives as an active decision in its context pack.}
+  - name: Agent session
+    intro:
+      title: What happens when you run ki
+      about: ki works out the repo's brains and identity, starts your agent with them, and the agent asks ki-mcp for context before it plans anything.
+    shapes:
+      - {group: laptop, x: 0, y: 0, w: 720, h: 230, label: Your laptop}
+      - {box: ki, x: 40, y: 60, label: ki, color: path}
+      - {box: agent, x: 450, y: 60, label: "Claude Code\nCodex · Cursor", color: path}
+      - {group: cluster, x: 980, y: 0, w: 1100, h: 230, label: k3s cluster}
+      - {box: mcp, x: 1020, y: 60, label: ki-mcp, color: path}
+      - {box: query, x: 1430, y: 60, label: kb-query, color: path}
+      - {stack: brains, x: 1820, y: 60, w: 220, label: brains}
+      - {line: k-a, from: ki, to: agent, label: scope, color: path, head: true}
+      - {line: a-m, from: agent, to: mcp, label: get_context, color: path, head: true, bend: 40}
+      - {line: m-a, from: mcp, to: agent, label: context pack, head: true, bend: 40}
+      - {line: m-q, from: mcp, to: query, label: allowed brains, color: path, head: true}
+      - {line: q-b, from: query, to: brains, color: path}
+      - {caption: c1, x: 0, y: 300, w: 720, text: "ki maps the repo to its brains and identity, and checks the commit email"}
+      - {caption: c2, x: 980, y: 300, w: 1100, text: "ki-mcp grants only what the device token allows; the pack always has\nconventions, active decisions, current state and pointers"}
+  - name: Ingest
+    intro:
+      title: How documents become knowledge
+      about: Every 5 minutes Temporal starts a sync. kb-worker clones each project, keeps only changed Markdown, has Claude Haiku extract facts, embeds them in the cluster and writes them to the project's brain.
+    shapes:
+      - {group: github, x: 0, y: 120, w: 320, h: 470, label: GitHub}
+      - {stack: repos, x: 50, y: 200, label: repos + vault}
+      - {group: cluster, x: 430, y: 0, w: 830, h: 720, label: k3s cluster}
+      - {box: temporal, x: 480, y: 60, label: Temporal}
+      - {box: worker, x: 480, y: 300, label: kb-worker}
+      - {box: emb, x: 980, y: 60, label: embeddings}
+      - {stack: brains, x: 980, y: 540, label: FalkorDB brains}
+      - {box: anthropic, x: 1380, y: 300, label: Anthropic, color: external}
+      - {line: t-w, from: temporal, to: worker, label: every 5 min, head: true}
+      - {line: r-w, from: repos, to: worker, label: clone, head: true}
+      - {line: w-e, from: worker, to: emb, label: embed}
+      - {line: w-a, from: worker, to: anthropic, label: extract, color: external}
+      - {line: w-b, from: worker, to: brains, label: write graph, head: true}
+      - {caption: c1, x: 430, y: 450, w: 330, text: "changed files only, scanned for\nsecrets, mapped to brains"}
+  - name: Brains and scope
+    intro:
+      title: Who can read what
+      about: Identities feed project brains; each device token decides which brains that machine may read. cortex is shared by every session, the rest stay apart.
+    shapes:
+      - {group: ids, x: 0, y: 0, w: 310, h: 520, label: Identities}
+      - {box: personal, x: 40, y: 50, label: personal}
+      - {box: work, x: 40, y: 200, label: work}
+      - {box: client, x: 40, y: 350, label: client, dash: dashed}
+      - {group: brains, x: 440, y: 0, w: 640, h: 520, label: Brains in FalkorDB}
+      - {stack: projects, x: 480, y: 50, label: projects}
+      - {box: workb, x: 480, y: 200, label: work}
+      - {box: cbrain, x: 480, y: 350, label: client brain, dash: dashed}
+      - {box: cortex, x: 810, y: 50, label: cortex, color: path}
+      - {box: voice, x: 810, y: 200, label: voice}
+      - {box: security, x: 810, y: 350, label: security}
+      - {group: tokens, x: 1220, y: 60, w: 310, h: 380, label: Device tokens}
+      - {box: main, x: 1260, y: 110, label: main Mac}
+      - {box: laptop, x: 1260, y: 270, label: this laptop}
+      - {box: mcp, x: 1680, y: 190, label: ki-mcp, color: path}
+      - {line: pe-pr, from: personal, to: projects, label: feeds}
+      - {line: m-m, from: work, to: workb, label: feeds}
+      - {line: t-p, from: client, to: cbrain, label: scope only, dash: dashed}
+      - {line: main-mcp, from: main, to: mcp, color: path}
+      - {line: lap-mcp, from: laptop, to: mcp, color: path}
+      - {caption: c1, x: 380, y: 590, w: 760, text: cortex joins every session; the others only where a repo maps to them}
+      - {caption: c2, x: 1220, y: 510, w: 690, text: ki-mcp refuses any brain a token does not grant}
+  - name: Deploy and secrets
+    intro:
+      title: How a change reaches the cluster
+      about: A merged PR becomes a release with images in ECR; bumping the tag in the GitOps repo lets Argo CD deploy it. Secrets come from the secrets manager through its operator and never touch git.
+    shapes:
+      - {group: github, x: 0, y: 0, w: 660, h: 230, label: GitHub}
+      - {box: harness, x: 40, y: 60, label: kio}
+      - {box: apps, x: 380, y: 60, label: GitOps repo}
+      - {box: ecr, x: 40, y: 400, label: ECR images, color: external}
+      - {group: cluster, x: 760, y: 0, w: 760, h: 640, label: k3s cluster}
+      - {box: argo, x: 800, y: 60, label: Argo CD}
+      - {box: operator, x: 800, y: 470, label: Secrets operator}
+      - {box: pods, x: 1240, y: 260, label: harness pods, color: path}
+      - {box: secretstore, x: 1660, y: 470, label: Secrets manager, color: external}
+      - {line: h-e, from: harness, to: ecr, label: release tag, head: true}
+      - {line: a-ar, from: apps, to: argo, label: pinned tag, head: true}
+      - {line: ar-p, from: argo, to: pods, label: sync, head: true}
+      - {line: e-p, from: ecr, to: pods, label: images, color: external, head: true}
+      - {line: b-o, from: secretstore, to: operator, label: secrets, color: external, head: true}
+      - {line: o-p, from: operator, to: pods, label: mounted, head: true}
+      - {caption: c1, x: 0, y: 680, w: 760, text: merging to main changes nothing; bumping the tag in the GitOps repo deploys}
+  - name: Notes
+    intro:
+      title: How notes reach the knowledge base
+      about: Obsidian Sync keeps your devices in step, but ingest reads git. The vault pusher in the cluster and ki vault push write to vault repo.
+    shapes:
+      - {group: devices, x: 0, y: 0, w: 320, h: 600, label: Devices}
+      - {box: mac, x: 45, y: 50, label: main Mac}
+      - {box: laptop, x: 45, y: 230, label: this laptop}
+      - {box: phone, x: 45, y: 410, label: phone}
+      - {box: sync, x: 520, y: 230, label: Obsidian Sync, color: external}
+      - {box: vault, x: 960, y: 50, label: vault repo}
+      - {box: vps, x: 960, y: 230, label: vault-pusher}
+      - {box: worker, x: 1400, y: 50, label: kb-worker}
+      - {line: m-s, from: mac, to: sync, color: external}
+      - {line: l-s, from: laptop, to: sync, label: notes, color: external}
+      - {line: ph-s, from: phone, to: sync, color: external}
+      - {line: m-v, from: mac, to: vault, label: ki vault push, head: true}
+      - {line: s-v, from: sync, to: vps, label: live, color: external}
+      - {line: v-v, from: vps, to: vault, label: push, head: true}
+      - {line: v-w, from: vault, to: worker, label: ingest, head: true}
+  - name: Network path
+    intro:
+      title: How a device reaches ki-mcp
+      about: Only devices on the VPN get past the TLS proxy, and every request also needs a device token.
+    shapes:
+      - {box: device, x: 0, y: 120, label: your device, color: path}
+      - {box: vpn, x: 0, y: 420, label: VPN server}
+      - {group: server, x: 440, y: 60, w: 1170, h: 230, label: the server}
+      - {box: nginx, x: 480, y: 120, label: TLS proxy, color: path}
+      - {box: traefik, x: 880, y: 120, label: Traefik, color: path}
+      - {box: mcp, x: 1280, y: 120, label: ki-mcp, color: path}
+      - {line: d-h, from: device, to: vpn, label: enrol, dash: dotted}
+      - {line: d-n, from: device, to: nginx, label: VPN, color: path, head: true}
+      - {line: n-t, from: nginx, to: traefik, label: VPN only, color: path, head: true}
+      - {line: t-m, from: traefik, to: mcp, label: token, color: path, head: true}
+      - {caption: c1, x: 440, y: 360, w: 1170, text: outside the VPN the proxy answers 403; every request also needs a device token}
+  - name: Glossary
+    intro:
+      title: Glossary
+      about: "The words used on these pages. Black: harness concepts. Blue: what an agent talks to. Green: services and tools the harness runs on."
+    shapes:
+      - {box: t0, x: 0, y: 0, h: 90, label: brain}
+      - {caption: d0, x: 260, y: 30, w: 520, text: one knowledge graph for one project or area, align: start}
+      - {box: t1, x: 0, y: 140, h: 90, label: cortex}
+      - {caption: d1, x: 260, y: 170, w: 520, text: "the shared brain: standards, patterns, this harness; in every session", align: start}
+      - {box: t2, x: 0, y: 280, h: 90, label: context pack, color: path}
+      - {caption: d2, x: 260, y: 310, w: 520, text: "what get_context returns: conventions, decisions, current state, pointers", align: start}
+      - {box: t3, x: 0, y: 420, h: 90, label: identity}
+      - {caption: d3, x: 260, y: 450, w: 520, text: a GitHub account and its commit email; ki checks you use the right one, align: start}
+      - {box: t4, x: 0, y: 560, h: 90, label: device token}
+      - {caption: d4, x: 260, y: 590, w: 520, text: one per machine; lists the brains that machine may read, align: start}
+      - {box: t5, x: 0, y: 700, h: 90, label: ingest}
+      - {caption: d5, x: 260, y: 730, w: 520, text: "turning Markdown from git into graph facts, every 5 minutes", align: start}
+      - {box: t6, x: 860, y: 0, h: 90, label: ki-mcp, color: path}
+      - {caption: d6, x: 1120, y: 30, w: 520, text: the server agents ask for context; enforces tokens and scope, align: start}
+      - {box: t7, x: 860, y: 140, h: 90, label: Graphiti, color: external}
+      - {caption: d7, x: 1120, y: 170, w: 520, text: the library that extracts entities and facts from text, align: start}
+      - {box: t8, x: 860, y: 280, h: 90, label: FalkorDB, color: external}
+      - {caption: d8, x: 1120, y: 310, w: 520, text: the graph database that holds every brain, align: start}
+      - {box: t9, x: 860, y: 420, h: 90, label: Temporal, color: external}
+      - {caption: d9, x: 1120, y: 450, w: 520, text: runs the 5-minute ingest schedule and retries failures, align: start}
+      - {box: t10, x: 860, y: 560, h: 90, label: Argo CD, color: external}
+      - {caption: d10, x: 1120, y: 590, w: 520, text: deploys the cluster from git at a pinned release, align: start}
+      - {box: t11, x: 860, y: 700, h: 90, label: Obsidian Sync, color: external}
+      - {caption: d11, x: 1120, y: 730, w: 520, text: keeps your notes identical on every device, align: start}

@@ -1,0 +1,14 @@
+# The smallest configuration `ki setup config` accepts: one identity, one repo.
+# Replace the GitHub user, the email and the repo URL with yours.
+identities:
+  me:
+    github_user: your-github-user
+    email: you@example.com
+    credential: me
+    ingest: false
+
+projects:
+  - name: notes
+    repo: https://github.com/your-github-user/notes
+    identity: me
+    brains: [cortex]

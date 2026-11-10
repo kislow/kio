@@ -1,0 +1,5 @@
+# Settings that are not projects. ki reads this from the configuration
+# directory (KI_CONFIG, the ~/.config/ki/config link, or this folder as the
+# fallback); the cluster does not need it. Keys are strict: a typo fails.
+knowledge_base:
+  url: https://ki.example.com   # the ki-mcp server sessions talk to; required, ki refuses to start without it

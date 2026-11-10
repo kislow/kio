@@ -1,0 +1,65 @@
+name: Bug report
+description: Something does not work as documented
+title: "fix: short description"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search the open issues first. Report security problems privately, not here (see the link on the issue chooser).
+  - type: input
+    id: version
+    attributes:
+      label: ki version
+      description: Output of `ki --version`. A build from source prints `dev`; give the commit instead.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 15.1 arm64, Ubuntu 24.04 amd64"
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent CLI and version
+      description: The agent involved, with its version (for example `claude --version`). Write "none" when the bug does not involve an agent.
+      placeholder: "claude 2.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands, starting from a clean state, and the relevant part of your configuration.
+      placeholder: |
+        1. ki setup machine me
+        2. cd ~/code/me/acme-app
+        3. ki delegate --task "..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What happened instead, with the full error output.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: ki doctor output
+      description: Paste the output of `ki doctor`. Redact tokens, hostnames and home-directory paths before you post it.
+      render: text
+    validations:
+      required: false

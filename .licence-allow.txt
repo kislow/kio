@@ -1,0 +1,8 @@
+# Dependencies whose licence class scripts/licences.sh would reject, one per
+# line: "package  reason". A Go entry also covers its subpackages.
+
+github.com/segmentio/asm  MIT-0 (MIT No Attribution) with the licence file present; the Go licence detector does not recognise MIT-0
+tldraw  tldraw licence: source-available, development use only, a licence key for production (docs/third-party-licences.md)
+@tldraw/editor  tldraw licence, as above
+@tldraw/assets  tldraw licence, as above
+@tldraw/driver  tldraw licence, as above

@@ -1,0 +1,347 @@
+# Everything in namespace harness is closed by default, in and out. Each rule
+# below opens one path, selected by pod label:
+#
+#   Traefik            -> ki-mcp      8787
+#   ki-mcp consumers   -> ki-mcp      8787 (pods labelled app.kubernetes.io/component:
+#                                   ki-mcp-client; their own egress ships with them)
+#   Traefik            -> falkordb    3000 (FalkorDB Browser, VPN-only host)
+#   Prometheus (monitoring) -> falkordb 9121 (redis exporter sidecar, metrics only)
+#   Prometheus (monitoring) -> kb-worker 9464, kb-query 8000, ki-mcp 8787 (metrics)
+#   ki-mcp             -> kb-query    8000
+#   kb-query, worker   -> falkordb    6379
+#   kb-query, worker   -> embeddings  8080
+#   worker             -> Temporal    7233 (namespace temporal)
+#   worker, kb-query, embeddings -> internet 443 (git, the LLM API, the
+#                                   embedding model's one-time download)
+#   vault-pusher       -> internet 443 and 22 (Obsidian Sync, git push over SSH)
+#   every pod except falkordb    -> DNS
+#
+# FalkorDB has no egress at all, and ki-mcp cannot reach the internet.
+# deploy/check.py fails if any rule lets a ki-mcp consumer reach a pod other than
+# ki-mcp on 8787, DNS, or the internet beyond git (22) and HTTPS (443).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ki-mcp-from-traefik
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ki-mcp
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - port: 8787
+---
+# A ki-mcp consumer (a dashboard, an agent runner) runs in this namespace and
+# calls ki-mcp with its own device token. It gets ki-mcp on 8787 and nothing
+# else here: not kb-query, not FalkorDB, not the worker. Its pods carry the
+# label app.kubernetes.io/component: ki-mcp-client.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ki-mcp-from-consumers
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ki-mcp
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ki-mcp-client
+      ports:
+        - port: 8787
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kb-query-from-mcp
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kb-query
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ki-mcp
+      ports:
+        - port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: falkordb-from-kb
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: falkordb
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [kb-query, kb-worker]
+      ports:
+        - port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: falkordb-browser-from-traefik
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: falkordb
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: embeddings-from-kb
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: embeddings
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [kb-query, kb-worker]
+      ports:
+        - port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [ki-mcp, kb-query, kb-worker, embeddings, vault-pusher]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-to-kb-query
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ki-mcp
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kb-query
+      ports:
+        - port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kb-to-falkordb-and-embeddings
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [kb-query, kb-worker]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: falkordb
+      ports:
+        - port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: embeddings
+      ports:
+        - port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-to-temporal
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kb-worker
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: temporal
+      ports:
+        - port: 7233
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: https-out
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [kb-query, kb-worker, embeddings]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10]
+      ports:
+        - port: 443
+---
+# Prometheus (monitoring namespace, on any node) scrapes the redis exporter
+# sidecar in the FalkorDB pod. Port 9121 only: FalkorDB itself on 6379 stays
+# reachable from kb-query and the worker alone.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: falkordb-metrics-from-prometheus
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: falkordb
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 9121
+---
+# Prometheus scrapes the worker's extraction metrics, and the /metrics paths
+# of kb-query and ki-mcp on their service ports. Only the Prometheus pods of
+# the monitoring namespace, nothing else, get in this way.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kb-worker-metrics-from-prometheus
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kb-worker
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 9464
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kb-query-metrics-from-prometheus
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kb-query
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ki-mcp-metrics-from-prometheus
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ki-mcp
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 8787
+---
+# The vault pusher talks to Obsidian Sync over 443 and pushes to GitHub over SSH.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vault-pusher-out
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vault-pusher
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10]
+      ports:
+        - port: 443
+        - port: 22

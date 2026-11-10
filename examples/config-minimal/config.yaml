@@ -1,0 +1,3 @@
+# No knowledge_base block: ki starts sessions and delegates with identity and
+# instructions only. Add knowledge_base.url (see docs/self-hosting.md) to use a
+# knowledge base.

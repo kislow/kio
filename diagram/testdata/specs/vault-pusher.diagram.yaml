@@ -1,0 +1,49 @@
+title: vault pusher
+tags: [diagram, kio, vault]
+pages:
+  - name: How it works
+    intro:
+      title: "Vault pusher: notes from any device into the knowledge base"
+      about: One pod keeps a copy of the vault in step with Obsidian Sync and pushes it to git once nothing has changed for 5 minutes. Files it never receives (.obsidian, dotfiles) stay as they are in git, and a push deleting more than 25 files is refused.
+    shapes:
+      - {stack: devices, x: 0, y: 220, label: your devices}
+      - {box: obsync, x: 420, y: 220, label: Obsidian Sync, color: external}
+      - {group: pod, x: 820, y: 60, w: 760, h: 520, label: vault-pusher pod}
+      - {box: sync, x: 870, y: 120, w: 260, label: "sync\nob sync", color: path}
+      - {box: pusher, x: 1280, y: 120, w: 260, label: "pusher\nki vault push", color: path}
+      - {stack: volume, x: 1060, y: 400, w: 260, label: "vault volume\n(git clone)"}
+      - {box: github, x: 1720, y: 120, label: vault repo}
+      - {box: worker, x: 1720, y: 400, label: kb-worker}
+      - {line: d-o, from: devices, to: obsync, label: notes, color: external}
+      - {line: o-s, from: obsync, to: sync, label: live, color: external, label_position: 0.35}
+      - {line: s-v, from: sync, to: volume, label: writes notes}
+      - {line: p-v, from: pusher, to: volume, label: commits}
+      - {line: p-g, from: pusher, to: github, label: push, head: true}
+      - {line: g-w, from: github, to: worker, label: ingest, head: true}
+      - {caption: c1, x: 820, y: 650, w: 760, text: "ob sync runs continuously; pusher waits until nothing has changed for 5 minutes,\nso a half-written note is never committed. Obsidian Sync never touches .git"}
+  - name: How it is deployed
+    intro:
+      title: How the pusher is deployed
+      about: "The same path as the rest of the harness: image from the release, Argo CD from the GitOps repo, deploy key from the secrets manager. Logging in to Obsidian is the one manual step, done once."
+    shapes:
+      - {group: github, x: 0, y: 0, w: 320, h: 470, label: GitHub}
+      - {box: harness, x: 45, y: 60, label: kio}
+      - {box: apps, x: 45, y: 300, label: GitOps repo}
+      - {box: ecr, x: 460, y: 60, label: ECR image, color: external}
+      - {box: argo, x: 460, y: 300, label: Argo CD}
+      - {group: cluster, x: 860, y: 0, w: 840, h: 560, label: namespace harness}
+      - {box: pod, x: 900, y: 180, label: vault-pusher pod, color: path}
+      - {stack: pvc, x: 1300, y: 180, w: 240, label: "volume\nlogin + vault"}
+      - {box: secret, x: 1300, y: 400, label: deploy key}
+      - {box: secretstore, x: 1840, y: 400, label: Secrets manager, color: external}
+      - {box: you, x: 900, y: -260, label: "you, once", dash: dashed}
+      - {line: h-e, from: harness, to: ecr, label: release, head: true}
+      - {line: e-p, from: ecr, to: pod, label: image, color: external, head: true}
+      - {line: a-ar, from: apps, to: argo, label: pinned tag, head: true}
+      - {line: ar-p, from: argo, to: pod, label: sync, head: true}
+      - {line: p-v, from: pod, to: pvc, label: keeps}
+      - {line: b-s, from: secretstore, to: secret, label: via operator, color: external, head: true}
+      - {line: s-p, from: secret, to: pod, label: mounted, head: true}
+      - {line: y-p, from: you, to: pod, label: ob login, color: path, dash: dotted, head: true, label_position: 0.3}
+      - {caption: c1, x: 860, y: 630, w: 840, text: "network policy: the pod may reach only GitHub and Obsidian Sync"}
+      - {caption: c2, x: 1080, y: -230, w: 560, text: "kubectl exec, email + password + 2FA,\nthen ob sync-setup --vault notes"}

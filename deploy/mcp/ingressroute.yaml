@@ -1,0 +1,20 @@
+# ki-mcp is served on Traefik's web entrypoint under its own hostname. What
+# terminates TLS in front of Traefik (a host nginx, a cloud load balancer)
+# must admit only your VPN's addresses: the server is private, and every
+# request also needs a bearer token (tokens.json).
+#
+# The hostname is configuration: the overlay patches the Host rule to the
+# name your proxy serves for ki-mcp (examples/config/kustomization.yaml).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ki-mcp
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`ki.example.com`) && (PathPrefix(`/mcp`) || Path(`/healthz`))
+      services:
+        - name: ki-mcp
+          port: 8787

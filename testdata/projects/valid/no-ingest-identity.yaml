@@ -1,0 +1,6 @@
+# Scope-only projects are fine for an identity with ingest: false.
+sensitive_brains: [client]
+identities:
+  employer: {github_user: alice-work, email: alice@employer.example, credential: employer, vault: false, ingest: false}
+projects:
+  - {name: app, repo: https://github.com/employer/app, identity: employer, brains: [cortex]}

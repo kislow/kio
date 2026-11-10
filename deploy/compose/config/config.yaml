@@ -1,0 +1,4 @@
+# Settings that are not projects; only ki reads this file. The local stack
+# serves ki-mcp on loopback port 8787 (docs/local-stack.md).
+knowledge_base:
+  url: http://localhost:8787

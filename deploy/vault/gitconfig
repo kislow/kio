@@ -1,0 +1,9 @@
+# Commits as the identity that owns the vault repo in projects.yaml; ki vault push refuses any other email.
+# The overlay replaces this file with its own (examples/config/gitconfig).
+[user]
+	name = Alice Example
+	email = alice@example.com
+[core]
+	sshCommand = ssh -i /tmp/vault-key -o IdentitiesOnly=yes -o UserKnownHostsFile=/etc/vault-git/known_hosts -o StrictHostKeyChecking=yes
+[safe]
+	directory = /data/vault

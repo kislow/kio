@@ -1,0 +1,37 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-component-in-tag": false,
+  "include-v-in-tag": true,
+  "bump-minor-pre-major": true,
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "package-name": "kio",
+      "changelog-path": "CHANGELOG.md",
+      "pull-request-title-pattern": "chore: release ${version}",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "kb/pyproject.toml",
+          "jsonpath": "$.project.version"
+        },
+        {
+          "type": "generic",
+          "path": "deploy/kustomization.yaml"
+        },
+        {
+          "type": "generic",
+          "path": "deploy/vault/kustomization.yaml"
+        }
+      ],
+      "initial-version": "0.1.0",
+      "exclude-paths": [
+        "docs",
+        "decisions",
+        ".github",
+        "README.md",
+        "CLAUDE.md"
+      ]
+    }
+  }
+}

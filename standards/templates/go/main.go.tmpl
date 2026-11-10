@@ -1,0 +1,86 @@
+// Command mysvc is a service skeleton: signal-aware context, structured logging,
+// an HTTP server with timeouts, and graceful shutdown. Copy to cmd/mysvc/main.go
+// and run `go get golang.org/x/sync/errgroup`.
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"golang.org/x/sync/errgroup"
+)
+
+// main only translates run's result into an exit code, so deferred cleanup always runs.
+func main() {
+	os.Exit(realMain())
+}
+
+func realMain() int {
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := run(ctx, logger, os.Getenv); err != nil {
+		logger.Error("service failed", "err", err)
+		return 1
+	}
+	return 0
+}
+
+// run wires dependencies and blocks until ctx is cancelled or a component fails.
+// It takes getenv as a parameter so tests can supply their own configuration.
+func run(ctx context.Context, logger *slog.Logger, getenv func(string) string) error {
+	addr := getenv("LISTEN_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		logger.Info("listening", "addr", addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("serving http: %w", err)
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		<-gctx.Done() // signal received or another goroutine failed
+		// gctx is already cancelled here, so detach from its cancellation but keep its values.
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(gctx), 20*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shutting down http: %w", err)
+		}
+		logger.Info("shutdown complete")
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("running service: %w", err)
+	}
+	return nil
+}

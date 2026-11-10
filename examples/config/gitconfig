@@ -1,0 +1,10 @@
+# The vault pusher's git identity: the email of the identity that owns the
+# vault repo in projects.yaml, or ki vault push refuses to commit. This file
+# replaces the base's gitconfig whole, so it keeps the ssh settings too.
+[user]
+	name = Your Name
+	email = you@example.com
+[core]
+	sshCommand = ssh -i /tmp/vault-key -o IdentitiesOnly=yes -o UserKnownHostsFile=/etc/vault-git/known_hosts -o StrictHostKeyChecking=yes
+[safe]
+	directory = /data/vault

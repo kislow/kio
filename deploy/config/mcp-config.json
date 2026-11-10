@@ -1,0 +1,13 @@
+{
+  "listen": "0.0.0.0:8787",
+  "tokens_file": "/etc/ki/tokens/tokens.json",
+  "default_budget": 3000,
+  "brains": {
+    "cortex":   { "graph": "cortex",         "backend": "http://kb-query.harness.svc.cluster.local:8000" },
+    "voice":    { "graph": "brain-voice",    "backend": "http://kb-query.harness.svc.cluster.local:8000" },
+    "acme":     { "graph": "brain-acme",     "backend": "http://kb-query.harness.svc.cluster.local:8000" },
+    "security": { "graph": "brain-security", "backend": "http://kb-query.harness.svc.cluster.local:8000" },
+    "client":   { "graph": "brain-client",   "backend": "http://kb-query.harness.svc.cluster.local:8000" },
+    "client-*": { "graph": "brain-client-*", "backend": "http://kb-query.harness.svc.cluster.local:8000" }
+  }
+}

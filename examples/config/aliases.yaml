@@ -1,0 +1,2 @@
+# Canonical name -> aliases, applied before extraction. Only unambiguous ones.
+Kubernetes: [k8s]

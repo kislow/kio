@@ -1,0 +1,36 @@
+sensitive_brains:
+- client
+identities:
+  me:
+    github_user: alice
+    email: alice@example.com
+    credential: me
+    ingest: true
+projects:
+- name: alpha-project
+  repo: https://github.com/alice/alpha
+  identity: me
+  brains:
+  - alpha
+- name: client-project
+  repo: https://github.com/alice/client
+  identity: me
+  brains:
+  - client
+workspaces:
+- name: work
+  title: Work
+  brains:
+  - alpha
+  projects:
+  - alpha-project
+  board: Work
+  vault:
+  - projects/work/
+- name: demo
+  brains:
+  - client
+  projects:
+  - client-project
+  vault:
+  - projects/work/

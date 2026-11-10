@@ -1,0 +1,114 @@
+# The only place that says which projects exist, which brains they feed and
+# which identity touches them. Nothing harness-related is ever written into a
+# project repo: ingest, the ki CLI and the cluster all read this file.
+#
+# This copy is the fallback layout and the worked example: one person with a
+# personal account and an employer account, a vault, a document archive and two
+# project repos. Your own lives in your configuration directory (ki setup
+# config <dir>, examples/config/) and is what the cluster deploys from.
+#
+# Validate after editing:
+#   make validate-projects
+
+# Brains that are never part of a default scope: a session reads them only
+# when its repo maps to them or it names them, and only with a separate token
+# (token-sensitive on the device). List a brain or family ("client-*") here the day a
+# client's material goes in; the MCP config must mark the same brains
+# sensitive (deploy/check.py refuses otherwise).
+sensitive_brains: []
+
+# One entry per GitHub account you use; "me" is the one your vault belongs to.
+#   github_user  your username on that account (gh auth login --user ...)
+#   email        the commit email ki expects in repos of this identity
+#   credential   name of the read-only git token in the cluster
+#                (a file in the kb-git-tokens secret)
+#   vault        false for an identity whose content must never be copied
+#                into your vault (reviews, decisions); default true
+#   ingest       required: false for an identity whose repos must never be
+#                ingested into any brain (its projects may then only have
+#                brains, no ingest rules)
+identities:
+  me:
+    github_user: alice
+    email: alice@example.com
+    credential: me
+    ingest: true
+  # The employer. Repos are ingested into the acme brain only, never cortex,
+  # so work knowledge reaches personal sessions only when they ask for it.
+  # vault: true keeps reviews and decisions in the vault (voice brain).
+  # Needs a read-only "work" token in kb-git-tokens before a project here
+  # gets ingest rules.
+  work:
+    github_user: alice-acme
+    email: alice@acme.example
+    credential: work
+    vault: true
+    ingest: true
+  # A client whose material stays out of the vault: its repos are session
+  # scopes for the client brains and nothing is cloned until a project here gets
+  # ingest rules and the cluster holds a "client" token.
+  client:
+    github_user: alice-client
+    email: alice@client.example
+    credential: client
+    vault: false
+    ingest: true
+
+# brains   read scope for agent sessions in this repo (cortex is always added;
+#          add voice where you want /ki-review to match your reviewing tone)
+# ingest   which paths feed which brain; no rules means nothing is ingested
+# board    optional GitHub Project title that /ki-issue adds new issues to
+projects:
+  - name: kio
+    repo: https://github.com/alice/kio
+    identity: me
+    brains: [cortex]
+    ingest:
+      - { path: README.md, brain: cortex }
+      - { path: docs/, brain: cortex }
+      - { path: decisions/, brain: cortex }
+      - { path: standards/, brain: cortex }
+
+  # The Obsidian vault: a git clone on your main machine, Obsidian Sync
+  # between devices, pushed to this private repo by that machine and by the
+  # cluster's vault-pusher. Folder-to-brain rules are documented in the
+  # vault's own AGENTS.md; folders not listed here are never read.
+  - name: vault
+    repo: https://github.com/alice/vault
+    identity: me
+    brains: [cortex, voice, acme, client, security]
+    ingest:
+      - { path: engineering/, brain: cortex }
+      - { path: reference/, brain: cortex }
+      - { path: projects/kio/, brain: cortex }
+      - { path: projects/acme/, brain: acme }
+      - { path: projects/client/, brain: client }
+      - { path: reviews/, brain: voice }
+      - { path: writing/, brain: voice }
+      - { path: security/, brain: security }
+
+  # A large archive of past work as documents. Only docs/ is read.
+  - name: archive
+    repo: https://github.com/alice/archive
+    identity: me
+    brains: [acme, voice, security]
+    ingest:
+      - { path: docs/voice/, brain: voice }
+      - { path: docs/security/, brain: security }
+
+  # An employer repo: ingested into the work brain, with security and voice
+  # readable in its sessions.
+  - name: acme-app
+    repo: https://github.com/acme/app
+    identity: work
+    brains: [acme, security, voice]
+    board: Acme
+    ingest:
+      - { path: README.md, brain: acme }
+      - { path: docs/, brain: acme }
+
+  # A client repo: a session scope only, nothing ingested.
+  - name: client-payments
+    repo: https://github.com/client/payments
+    identity: client
+    brains: [client]

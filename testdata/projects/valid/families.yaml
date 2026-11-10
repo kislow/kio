@@ -1,0 +1,15 @@
+# Sub-projects in a sensitive family: client-<sub> is sensitive by its name.
+sensitive_brains: [client, client-*]
+identities:
+  org-a: {github_user: alice-orga, email: alice@org-a.example, credential: org-a, vault: false, ingest: true}
+projects:
+  - name: payments
+    repo: https://github.com/org-a/payments
+    identity: org-a
+    brains: [client]
+    ingest: [{path: docs/, brain: client}]
+  - name: payments-acme
+    repo: https://github.com/org-a/acme-onboarding
+    identity: org-a
+    brains: [client, client-acme]
+    ingest: [{path: docs/, brain: client-acme}]

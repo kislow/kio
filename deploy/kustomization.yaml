@@ -1,0 +1,65 @@
+# Everything except Temporal (its own Helm release in namespace temporal, see
+# temporal/). Argo CD syncs this directory at a release tag; by hand:
+#   kubectl apply -k deploy/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: harness
+
+resources:
+  - namespaces.yaml
+  - network-policy.yaml
+  - kb
+  - mcp
+  # Optional: the vault pusher keeps an Obsidian vault in a git repo (docs/vault.md).
+  # The knowledge base runs without it. Uncomment to deploy it with the base,
+  # or add ../../deploy/vault to an overlay (see examples/config/kustomization.yaml).
+  # - vault
+
+# The generated config maps carry a content hash in their name, so a change
+# to projects.yaml, models.env or the brains map changes the name, kustomize
+# rewrites every reference, and the pods roll. Without the hash a config
+# change reached the cluster but not the running pods.
+configMapGenerator:
+  - name: kb-config
+    files:
+      - config/aliases.yaml
+      - config/projects.yaml
+  - name: kb-models
+    envs:
+      - config/models.env
+  - name: ki-mcp-config
+    files:
+      - config.json=config/mcp-config.json
+
+# Our images are pinned to the released version (the optional vault image in
+# vault/kustomization.yaml). The release PR bumps the tag lines
+# (x-release-please-version); deploy/check.py rejects anything that is not a
+# semver tag. The registry is the project's public one on ghcr.io. To run the
+# images from a registry of your own (mirrored, or built by your fork's publish
+# workflow), map these names onto it with `images:` in your overlay
+# (examples/config/kustomization.yaml), keeping the tag; the check accepts
+# ghcr.io/<owner>/kio-* and <account>.dkr.ecr.<region>.amazonaws.com/kio-*. To
+# try a main build on the cluster, apply with `kustomize edit set image`
+# locally rather than committing it.
+images:
+  - name: kio-kb
+    newName: ghcr.io/kislow/kio-kb
+    newTag: 0.43.0 # x-release-please-version
+  - name: kio-mcp
+    newName: ghcr.io/kislow/kio-mcp
+    newTag: 0.43.0 # x-release-please-version
+  - name: falkordb
+    # Pinned by digest so a restart never pulls a different FalkorDB. This is
+    # falkordb/falkordb 6.0.3 (image also carries FalkorDB Browser). From 4.x,
+    # follow docs/operations.md "Upgrade FalkorDB 4.x to 6.x" first. To move:
+    # `docker buildx imagetools inspect falkordb/falkordb:vX.Y.Z` for the
+    # digest, then update this line and the backup/restore notes if the data
+    # format changed.
+    newName: falkordb/falkordb
+    digest: sha256:0fb85036662ce3d1206530a38fdf7df5a92b1fb31ad23087f8d4e89038ce0812
+  - name: redis-exporter
+    # oliver006/redis_exporter v1.95.0, the metrics sidecar of FalkorDB; pinned
+    # by digest for the same reason.
+    newName: oliver006/redis_exporter
+    digest: sha256:afb21407aba3df1b4010899f155fc6b1ba2026c97b725d72aca4019d772e7b6b

@@ -1,0 +1,93 @@
+# gitleaks configuration for this repository. The default ruleset stays on.
+#
+# Every allow-list entry sits under the rule it covers and names one file and one
+# fake value; both must match (condition = "AND"). A real secret anywhere else,
+# or a different value in these files, still fails the scan.
+
+title = "kio"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "aws-access-token"
+
+  # Placeholder key id spelled from the alphabet (AKIA + ABCDEFGHIJKLMNOP), not a live key.
+  [[rules.allowlists]]
+  # The redaction tests have lived in more than one package; history still holds the older one.
+  description = "placeholder AWS key id in the redaction tests"
+  condition = "AND"
+  paths = ['''^internal/[a-z]+/(redact|convert)_test\.go$''']
+  regexes = ['''^AKIAABCDEFGHIJKLMNOP$''']
+
+[[rules]]
+id = "generic-api-key"
+
+  # Placeholder token; the delegate log test checks that a token-like line is refused.
+  [[rules.allowlists]]
+  description = "placeholder token in the delegate log refusal test"
+  condition = "AND"
+  paths = ['''^internal/cli/delegate_log_test\.go$''']
+  regexes = ['''^abc123456789$''']
+
+  # Placeholder api_key value in a redaction test; not a credential.
+  [[rules.allowlists]]
+  description = "placeholder api_key value in the guardrail tests"
+  condition = "AND"
+  paths = ['''^kb/tests/test_guardrails\.py$''']
+  regexes = ['''^9f8e7d6c5b4a3210$''']
+
+  # Placeholder GH_TOKEN value in a redaction test; not a credential.
+  [[rules.allowlists]]
+  description = "placeholder GH_TOKEN value in the guardrail tests"
+  condition = "AND"
+  paths = ['''^kb/tests/test_guardrails\.py$''']
+  regexes = ['''^abcdef123456789$''']
+
+  # Base64 of the words "this is a secret", written by the test to check detection.
+  [[rules.allowlists]]
+  description = "base64 of 'this is a secret' in the guardrail tests"
+  condition = "AND"
+  paths = ['''^kb/tests/test_guardrails\.py$''']
+  regexes = ['''^dGhpcyBpcyBhIHNlY3JldA==$''']
+
+  # Placeholder ghp_ token in a guardrail test; not a credential.
+  [[rules.allowlists]]
+  description = "placeholder GitHub token assigned in the guardrail tests"
+  condition = "AND"
+  paths = ['''^kb/tests/test_guardrails\.py$''']
+  regexes = ['''^ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789$''']
+
+[[rules]]
+id = "github-pat"
+
+  # Placeholder ghp_ token (the alphabet in order) in the title redaction test.
+  [[rules.allowlists]]
+  description = "placeholder GitHub token in the title redaction test"
+  condition = "AND"
+  paths = ['''^internal/ki/title_test\.go$''']
+  regexes = ['''^ghp_abcdefghijklmnopqrstuvwxyz0123456789$''']
+
+  # Placeholder ghp_ token in the guardrail tests; not a credential.
+  [[rules.allowlists]]
+  description = "placeholder GitHub token in the guardrail tests"
+  condition = "AND"
+  paths = ['''^kb/tests/test_guardrails\.py$''']
+  regexes = ['''^ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789$''']
+
+[[rules]]
+id = "jwt"
+
+  # Unsigned-looking JWT for {"sub":"test"} with the signature "signature" (base64 spelled out).
+  [[rules.allowlists]]
+  description = "sample JWT in the guardrail tests"
+  condition = "AND"
+  paths = ['''^kb/tests/test_guardrails\.py$''']
+  regexes = ['''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiJ0ZXN0In0\.c2lnbmF0dXJl$''']
+
+  # Sample JWT for sub 1234567890 with a made-up signature, used by the vault redaction test.
+  [[rules.allowlists]]
+  description = "sample JWT in the vault redaction test"
+  condition = "AND"
+  paths = ['''^internal/vault/vault_test\.go$''']
+  regexes = ['''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.dBjftJeZ4CVPmB92K27uhbUJU1p1r$''']

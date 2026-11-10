@@ -1,0 +1,19 @@
+{
+  "_comment": "Shared cases for the brain family rule. Go (internal/scope), Python (ki_kb.brains) and deploy/check.py are all tested against this file, so the three cannot drift.",
+  "matches": [
+    {"entry": "client", "name": "client", "want": true},
+    {"entry": "client", "name": "client-acme", "want": false},
+    {"entry": "client-*", "name": "client-acme", "want": true},
+    {"entry": "client-*", "name": "client-acme-eu", "want": true},
+    {"entry": "client-*", "name": "client", "want": false},
+    {"entry": "client-*", "name": "client-", "want": false},
+    {"entry": "client-*", "name": "clientx", "want": false},
+    {"entry": "client-*", "name": "xclient-acme", "want": false},
+    {"entry": "client-*", "name": "client-ACME", "want": false},
+    {"entry": "client-*", "name": "client-*", "want": false},
+    {"entry": "brain-client-*", "name": "brain-client-acme", "want": true},
+    {"entry": "brain-client-*", "name": "brain-client", "want": false}
+  ],
+  "valid_entries": ["client", "client-*", "cortex", "brain-client-*"],
+  "invalid_entries": ["*", "-*", "client*", "cl:ient-*", "client-*-*", "CLIENT-*", ""]
+}

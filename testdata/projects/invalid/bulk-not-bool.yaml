@@ -1,0 +1,10 @@
+identities:
+  personal: {github_user: alice, email: me@example.com, credential: personal, ingest: true}
+projects:
+  - name: archive
+    repo: https://github.com/alice/archive
+    identity: personal
+    brains: [cortex]
+    bulk: "yes"
+    ingest:
+      - {path: docs/, brain: cortex}

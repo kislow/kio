@@ -1,0 +1,6 @@
+# An employer whose repos must never be ingested cannot have ingest rules.
+sensitive_brains: [client]
+identities:
+  employer: {github_user: alice-work, email: alice@employer.example, credential: employer, vault: false, ingest: false}
+projects:
+  - {name: x, repo: https://github.com/employer/app, identity: employer, brains: [cortex], ingest: [{path: docs/, brain: cortex}]}

@@ -1,0 +1,3 @@
+# Canonical name -> aliases, applied to every document before extraction.
+# Empty for the local stack; add entries as in deploy/config/aliases.yaml.
+{}

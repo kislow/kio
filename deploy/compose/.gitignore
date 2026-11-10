@@ -1,0 +1,4 @@
+# Written by setup.sh and smoke-test.sh on the machine that runs the stack. None of it is committed.
+.env
+config/models.env
+local/

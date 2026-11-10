@@ -1,0 +1,29 @@
+# Example configuration: one person, one repo, two brains. Validate with
+#   ki validate examples/config/projects.yaml
+sensitive_brains: []
+
+identities:
+  me:
+    github_user: your-github-user
+    email: you@example.com
+    credential: me
+    ingest: true
+
+projects:
+  - name: notes
+    repo: https://github.com/your-github-user/notes
+    identity: me
+    brains: [cortex, voice]
+    ingest:
+      - { path: engineering/, brain: cortex }
+      - { path: writing/, brain: voice }
+
+# A workspace is a view over projects, brains, and vault folders already
+# described here. Its brains must occur in its listed projects (cortex is
+# implicit); voice and security are not workspace brains.
+# workspaces:
+#   - name: work
+#     title: Demo
+#     brains: [cortex]
+#     projects: [notes]
+#     vault: [projects/work/]

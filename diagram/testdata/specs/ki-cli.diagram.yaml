@@ -1,0 +1,93 @@
+title: ki CLI
+tags: [diagram, kio, cli]
+pages:
+  - name: Starting a session
+    intro:
+      title: "ki: one command for a scoped agent session"
+      about: ki reads which repo you are in, looks it up in projects.yaml, and starts your agent with the right brains, knowledge-base token and GitHub identity.
+    shapes:
+      - {group: inputs, x: 0, y: 0, w: 320, h: 820, label: What ki reads}
+      - {box: repo, x: 45, y: 50, label: "this repo\ngit remote"}
+      - {box: projects, x: 45, y: 240, label: projects.yaml}
+      - {box: token, x: 45, y: 430, label: device token}
+      - {box: gh, x: 45, y: 620, label: gh logins}
+      - {box: ki, x: 480, y: 330, w: 240, h: 130, label: ki, color: path}
+      - {group: session, x: 900, y: 120, w: 420, h: 600, label: Agent session}
+      - {box: agent, x: 995, y: 180, label: "Claude Code\nCodex · Cursor", color: path}
+      - {box: vaultmcp, x: 995, y: 520, label: ki vault mcp}
+      - {box: mcp, x: 1500, y: 180, label: ki-mcp, color: path}
+      - {line: r-k, from: repo, to: ki, label: which project}
+      - {line: p-k, from: projects, to: ki, label: "brains, identity"}
+      - {line: t-k, from: token, to: ki, label: KI_TOKEN}
+      - {line: g-k, from: gh, to: ki, label: GH_TOKEN}
+      - {line: k-a, from: ki, to: agent, label: starts, color: path, head: true}
+      - {line: a-m, from: agent, to: mcp, label: get_context, color: path, head: true}
+      - {line: a-v, from: agent, to: vaultmcp, label: notes, dash: dashed}
+      - {caption: c1, x: 400, y: 800, w: 460, text: "Claude gets --mcp-config, the agent\ninstructions and no attribution;\nothers get KI_TOKEN, KI_BRAINS, KI_MCP_URL"}
+      - {caption: c2, x: 900, y: 800, w: 420, text: the vault server only when KI_VAULT is set}
+  - name: Scope and guard
+    intro:
+      title: The checks before a session starts
+      about: "ki refuses rather than guesses: an unknown repo or the wrong commit email stops it, and a sensitive brain switches to a separate token."
+    shapes:
+      - {box: start, x: 0, y: 170, label: ki in a repo, color: path}
+      - {box: mapped, x: 380, y: 140, w: 260, h: 170, label: "repo in\nprojects.yaml?", geo: diamond}
+      - {box: force, x: 380, y: 470, w: 260, h: 170, label: --force?, geo: diamond}
+      - {box: refuse1, x: 380, y: 780, label: refuses, dash: dashed}
+      - {box: cortex, x: 0, y: 500, label: cortex only}
+      - {box: email, x: 780, y: 140, w: 260, h: 170, label: "commit email\nmatches?", geo: diamond}
+      - {box: refuse2, x: 780, y: 470, label: refuses, dash: dashed}
+      - {box: sensitive, x: 1180, y: 140, w: 260, h: 170, label: "sensitive\nbrain?", geo: diamond}
+      - {box: stoken, x: 1180, y: 470, label: token-sensitive}
+      - {box: normal, x: 1560, y: 170, label: device token, color: path}
+      - {line: s-m, from: start, to: mapped, head: true}
+      - {line: m-e, from: mapped, to: email, label: yes, head: true}
+      - {line: m-f, from: mapped, to: force, label: no, head: true}
+      - {line: f-c, from: force, to: cortex, label: yes, head: true}
+      - {line: f-r, from: force, to: refuse1, label: no, head: true}
+      - {line: e-s, from: email, to: sensitive, label: yes, head: true}
+      - {line: e-r, from: email, to: refuse2, label: no, head: true}
+      - {line: s-p, from: sensitive, to: stoken, label: yes, head: true}
+      - {line: s-n, from: sensitive, to: normal, label: no, head: true}
+      - {caption: c1, x: 700, y: 640, w: 860, text: ki-mcp then grants only the brains that token allows; anything else is an error}
+  - name: Commands
+    intro:
+      title: Every ki command
+      about: Day to day you only run ki. The rest set up, check and update the machine, and look after the vault.
+    shapes:
+      - {group: work, x: 0, y: 0, w: 640, h: 230, label: Working}
+      - {box: ki, x: 40, y: 60, label: ki, color: path}
+      - {box: status, x: 370, y: 60, label: ki status}
+      - {caption: c1, x: 0, y: 290, w: 640, text: ki starts an agent with scope and identity; status shows the result}
+      - {group: vault, x: 0, y: 440, w: 640, h: 230, label: Vault}
+      - {box: push, x: 40, y: 500, label: ki vault push}
+      - {box: vmcp, x: 370, y: 500, label: ki vault mcp}
+      - {caption: c3, x: 0, y: 730, w: 640, text: push commits and pushes the vault; mcp serves it to agents}
+      - {group: machine, x: 760, y: 0, w: 640, h: 410, label: This machine}
+      - {box: doctor, x: 800, y: 60, label: ki doctor}
+      - {box: setup, x: 1130, y: 60, label: "ki setup\nclaude · codex"}
+      - {box: cursor, x: 800, y: 240, label: ki cursor}
+      - {box: update, x: 1130, y: 240, label: ki update}
+      - {caption: c2, x: 760, y: 470, w: 640, text: "doctor checks tokens, KB reach, gh logins and attribution;\nupdate pulls the harness, reinstalls ki and relinks skills"}
+      - {group: config, x: 760, y: 600, w: 640, h: 230, label: Config}
+      - {box: validate, x: 800, y: 660, label: ki validate}
+      - {box: version, x: 1130, y: 660, label: ki version}
+      - {caption: c4, x: 760, y: 890, w: 640, text: validate checks projects.yaml the same way ingest does}
+  - name: Vault push
+    intro:
+      title: ki vault push
+      about: The one git path for the vault, used by the note-writing skills, by you after hand edits, and by the cluster pusher. It fails closed and never resolves a conflict on its own.
+    shapes:
+      - {box: caller, x: 0, y: 160, label: "skill, you\nor the pusher", color: path}
+      - {box: checks, x: 420, y: 160, label: preflight}
+      - {box: commit, x: 840, y: 160, label: "commit\nevery change"}
+      - {box: pull, x: 1260, y: 160, label: pull --rebase}
+      - {box: github, x: 1680, y: 160, label: vault repo}
+      - {box: stop, x: 1260, y: 460, label: "stops on a\nconflict", dash: dashed}
+      - {line: c-k, from: caller, to: checks, head: true}
+      - {line: k-c, from: checks, to: commit, label: all pass, head: true}
+      - {line: c-p, from: commit, to: pull, head: true}
+      - {line: p-g, from: pull, to: github, label: push, head: true}
+      - {line: p-s, from: pull, to: stop, label: conflict, dash: dashed, head: true}
+      - {caption: c1, x: 280, y: 330, w: 520, text: "KI_VAULT is a clone with an origin, the identity\nallows the vault, the commit email matches,\nno rebase is open, HEAD is on a branch"}
+      - {caption: c2, x: 1115, y: 530, w: 520, text: the next run refuses until the rebase is finished}

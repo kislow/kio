@@ -1,0 +1,6 @@
+# Run `pre-commit install` once per clone. The gitleaks rev matches GITLEAKS_VERSION in .github/workflows/ci.yml.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+      - id: gitleaks

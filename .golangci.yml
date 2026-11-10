@@ -1,0 +1,57 @@
+# golangci-lint v2 configuration. Run: golangci-lint run
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard   # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - errorlint       # %w and errors.Is/As instead of == and type assertions
+    - wrapcheck       # errors crossing package boundaries must be wrapped
+    - errname         # sentinel errors are ErrXxx, error types are XxxError
+    - nilerr          # returning nil when err != nil
+    - bodyclose       # http response bodies are closed
+    - noctx           # http requests carry a context
+    - contextcheck    # context is propagated
+    - gosec           # security issues
+    - sloglint        # consistent log/slog usage
+    - forbidigo       # no fmt.Print* in library code (see settings)
+    - gochecknoinits  # no init()
+    - gocritic
+    - revive
+    - prealloc
+    - unconvert
+    - misspell
+  settings:
+    forbidigo:
+      forbid:
+        - pattern: '^fmt\.Print(f|ln)?$'
+          msg: use log/slog (or write to an explicit io.Writer)
+        - pattern: '^log\.(Fatal|Panic)(f|ln)?$'
+          msg: return the error; exit only in main
+    sloglint:
+      no-mixed-args: true
+      kv-only: true
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: error-naming
+        - name: context-as-argument
+        - name: unused-parameter
+  exclusions:
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters: [wrapcheck, gosec, forbidigo]
+      - path: cmd/
+        linters: [forbidigo]   # CLI output in main packages is allowed
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports

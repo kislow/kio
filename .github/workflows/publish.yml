@@ -1,0 +1,321 @@
+# ==============================================================================
+# Publish a release: ki binaries on the GitHub Release, and the images on a registry.
+#
+# Where the images go is chosen by repository variables:
+#   default                  ghcr.io/<owner>/<prefix>-kb and -mcp, with GITHUB_TOKEN
+#   AWS_ECR_ROLE_ARN set     optional: push to your own ECR instead, through
+#                            GitHub's OIDC token (AWS_REGION names the region)
+# The vault image is built and pushed only when the repository variable
+# PUBLISH_VAULT is "true". Its Dockerfile installs a package whose licence
+# forbids redistribution, so a public repository leaves it unset and
+# docs/vault.md has users build the image themselves.
+#
+# Every release writes two image tags per image:
+#   <version>         e.g. 0.1.0, what deploy/kustomization.yaml pins
+#   sha-<short-sha>   commit traceability
+# Both name the same digest. Release tags are never reused (an ECR repository
+# can have immutable tags), so the cluster can pull IfNotPresent.
+#
+# Order: the images build and push as sha-<short> while the tag's tests run;
+# release-tags adds <version> to those same manifests (no rebuild) only once
+# every image has passed and the tests have too, so nothing carries a release
+# tag unless the tests passed. The ki binaries still wait for the tests. Builds
+# read and write a layer cache at <image>:buildcache in the same repository.
+#
+# The Homebrew formula goes to the tap named by the repository variable
+# HOMEBREW_TAP (docs/operations.md); unset, the tap job is skipped.
+#
+# On a public repository, the images and the ki binaries also get a build
+# provenance attestation (docs/operations.md, "Verify a release").
+#
+# Triggers:
+#   workflow_dispatch   normal path, from release.yml at the release tag
+#   push tag v*         escape hatch for a hand-pushed tag
+# ==============================================================================
+
+name: publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without the v (e.g. 0.1.0); the run must be on tag v<version>"
+        type: string
+        required: true
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref_name }}
+  cancel-in-progress: false
+
+# The repository variable RUNNER picks the runner label; unset, jobs run on
+# GitHub-hosted ubuntu-latest. The repository variable IMAGE_PREFIX names the
+# registry repositories (<prefix>-kb, -mcp, -vault); unset, the prefix is kio.
+jobs:
+  version:
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      sha_tag: ${{ steps.v.outputs.sha_tag }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - id: v
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${INPUT_VERSION}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must be MAJOR.MINOR.PATCH, got '${version}'"
+            exit 1
+          fi
+          # Publishing must run on the release tag, so the binaries and images match it.
+          if [[ "${GITHUB_REF_TYPE}" != "tag" || "${GITHUB_REF_NAME}" != "v${version}" ]]; then
+            echo "::error::run this on tag v${version}, not ${GITHUB_REF_TYPE} ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "sha_tag=sha-$(git rev-parse --short HEAD)" >> "${GITHUB_OUTPUT}"
+
+  test:
+    needs: version
+    # The caller must grant what ci.yml's images job requests, even though that job is skipped here.
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/ci.yml
+
+  ki:
+    needs: [version, test]
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      # The release notes list the images by their registry: ghcr.io unless ECR is configured.
+      - name: Name the image registry for the release notes
+        env:
+          ECR_ROLE: ${{ vars.AWS_ECR_ROLE_ARN }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${ECR_ROLE}" ]]; then
+            echo "KI_IMAGE_REGISTRY=your ECR registry" >> "${GITHUB_ENV}"
+          else
+            echo "KI_IMAGE_REGISTRY=ghcr.io/$(tr '[:upper:]' '[:lower:]' <<<"${OWNER}")" >> "${GITHUB_ENV}"
+          fi
+      - uses: goreleaser/goreleaser-action@v7.3.0
+        with:
+          version: v2.19.0
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KI_IMAGE_PREFIX: ${{ vars.IMAGE_PREFIX || 'kio' }}
+          KI_IMAGE_TAG: ${{ needs.version.outputs.version }}
+          KI_SHA_TAG: ${{ needs.version.outputs.sha_tag }}
+      - if: github.event.repository.visibility == 'public'
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-checksums: dist/checksums.txt
+
+  # Publishes Formula/kio.rb to the Homebrew tap once the release assets exist.
+  # Skipped unless the repository variable HOMEBREW_TAP names a tap repository
+  # (for example kislow/homebrew-tap); HOMEBREW_TAP_TOKEN is a fine-grained token
+  # with contents write on that repository only. The formula builds from the
+  # tag's source tarball, pinned by the sha256 computed here.
+  tap:
+    if: ${{ vars.HOMEBREW_TAP != '' }}
+    needs: [version, ki]
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Render the formula and push it to the tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAP: ${{ vars.HOMEBREW_TAP }}
+          VERSION: ${{ needs.version.outputs.version }}
+          SOURCE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          : "${GH_TOKEN:?secret HOMEBREW_TAP_TOKEN is not set}"
+          work="$(mktemp -d)"
+          trap 'rm -rf -- "${work}"' EXIT
+
+          curl -fsSL --retry 3 -o "${work}/source.tar.gz" \
+            "https://github.com/${SOURCE_REPO}/archive/refs/tags/v${VERSION}.tar.gz"
+          sha256="$(sha256sum "${work}/source.tar.gz" | awk '{ print $1 }')"
+
+          # The token's own account is the commit author.
+          login="$(gh api user --jq .login)"
+          id="$(gh api user --jq .id)"
+          gh auth setup-git
+          git clone --depth 1 "https://github.com/${TAP}.git" "${work}/tap"
+          mkdir -p "${work}/tap/Formula"
+          scripts/homebrew-formula.sh "${VERSION}" "${sha256}" > "${work}/tap/Formula/kio.rb"
+
+          cd "${work}/tap"
+          git add Formula/kio.rb
+          if git diff --cached --quiet; then
+            echo "Formula/kio.rb is already at ${VERSION}"
+            exit 0
+          fi
+          git -c "user.name=${login}" -c "user.email=${id}+${login}@users.noreply.github.com" \
+            commit -m "feat(kio): v${VERSION}"
+          git push origin HEAD
+          {
+            echo "### Homebrew ${VERSION}"
+            echo "- \`${TAP}\` Formula/kio.rb"
+            echo "- source sha256 \`${sha256}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  # Starts with the tests, not after them: the sha-<short> tag is traceability
+  # only and never deployed (deploy/check.py refuses it in manifests).
+  images:
+    needs: version
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      matrix:
+        # Keep the components in step with the images list in release-tags.
+        include: ${{ fromJSON(vars.PUBLISH_VAULT == 'true' && '[{"component":"mcp","context":".","file":"cmd/ki-mcp/Dockerfile"},{"component":"kb","context":"kb","file":"kb/Dockerfile"},{"component":"vault","context":".","file":"vault/Dockerfile"}]' || '[{"component":"mcp","context":".","file":"cmd/ki-mcp/Dockerfile"},{"component":"kb","context":"kb","file":"kb/Dockerfile"}]') }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      # The registry layer cache needs a docker-container builder, not the default driver.
+      - uses: docker/setup-buildx-action@v4.4.1
+      - if: vars.AWS_ECR_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: ecr
+        if: vars.AWS_ECR_ROLE_ARN != ''
+        uses: aws-actions/amazon-ecr-login@v2.1.7
+      - if: vars.AWS_ECR_ROLE_ARN == ''
+        uses: docker/login-action@v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ vars.IMAGE_PREFIX || 'kio' }}-${{ matrix.component }}
+        run: |
+          set -euo pipefail
+          registry="${ECR_REGISTRY:-ghcr.io/$(tr '[:upper:]' '[:lower:]' <<<"${OWNER}")}"
+          echo "ref=${registry}/${IMAGE}" >> "${GITHUB_OUTPUT}"
+      # Registry cache: ECR needs image-manifest=true and OCI media types for it;
+      # ghcr takes them too. ignore-error keeps a cache that cannot be written
+      # (the buildcache tag is not excluded from tag immutability, say) from
+      # failing the release.
+      - id: build
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          build-args: VERSION=${{ needs.version.outputs.version }}
+          tags: ${{ steps.image.outputs.ref }}:${{ needs.version.outputs.sha_tag }}
+          cache-from: type=registry,ref=${{ steps.image.outputs.ref }}:buildcache
+          cache-to: type=registry,ref=${{ steps.image.outputs.ref }}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true
+      # The <version> tag is added without a rebuild, so it names this digest too.
+      - if: github.event.repository.visibility == 'public'
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-name: ${{ steps.image.outputs.ref }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: ${{ vars.AWS_ECR_ROLE_ARN == '' }}
+
+  # The gate: adds the release tag to the manifests the images job pushed, once
+  # the tag's tests and every image have passed. A carbon copy (--prefer-index
+  # =false), so <version> and sha-<short> name the same digest (and an ECR
+  # lifecycle rule for semver tags keeps that image).
+  release-tags:
+    needs: [version, test, images]
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: docker/setup-buildx-action@v4.4.1
+      - if: vars.AWS_ECR_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: ecr
+        if: vars.AWS_ECR_ROLE_ARN != ''
+        uses: aws-actions/amazon-ecr-login@v2.1.7
+      - if: vars.AWS_ECR_ROLE_ARN == ''
+        uses: docker/login-action@v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag the tested images with the version
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          OWNER: ${{ github.repository_owner }}
+          PUBLISH_VAULT: ${{ vars.PUBLISH_VAULT }}
+          IMAGE_PREFIX: ${{ vars.IMAGE_PREFIX || 'kio' }}
+          VERSION: ${{ needs.version.outputs.version }}
+          SHA_TAG: ${{ needs.version.outputs.sha_tag }}
+        run: |
+          set -euo pipefail
+          REGISTRY="${ECR_REGISTRY:-ghcr.io/$(tr '[:upper:]' '[:lower:]' <<<"${OWNER}")}"
+          # The images matrix above, by name.
+          images=("${IMAGE_PREFIX}-mcp" "${IMAGE_PREFIX}-kb")
+          if [[ "${PUBLISH_VAULT}" == "true" ]]; then
+            images+=("${IMAGE_PREFIX}-vault")
+          fi
+          digest() { docker buildx imagetools inspect "$1" | awk '$1 == "Digest:" && !seen++ { print $2 }'; }
+          for name in "${images[@]}"; do
+            src="${REGISTRY}/${name}:${SHA_TAG}"
+            dst="${REGISTRY}/${name}:${VERSION}"
+            want="$(digest "${src}")"
+            # Tags are immutable: on a rerun, a tag this job already wrote is left as it is.
+            got="$(digest "${dst}" 2>/dev/null || true)"
+            if [[ -z "${got}" ]]; then
+              docker buildx imagetools create --prefer-index=false --tag "${dst}" "${src}"
+              got="$(digest "${dst}")"
+            fi
+            if [[ -z "${want}" || "${want}" != "${got}" ]]; then
+              echo "::error::${dst} is ${got:-missing}, expected the digest of ${src} (${want:-missing})"
+              exit 1
+            fi
+            {
+              echo "### ${name} ${VERSION}"
+              echo "- \`${dst}\`"
+              echo "- \`${src}\`"
+              echo "- digest \`${want}\`"
+            } >> "${GITHUB_STEP_SUMMARY}"
+          done

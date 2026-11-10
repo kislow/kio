@@ -1,0 +1,3 @@
+# Settings that are not projects; only ki reads this file.
+knowledge_base:
+  url: https://ki.example.com

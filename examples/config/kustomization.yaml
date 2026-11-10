@@ -1,0 +1,142 @@
+# A configuration repo is this directory: the five files ki reads on laptops
+# (`ki setup config <dir>`) and a kustomize overlay on the harness's deploy/
+# base for the cluster. The overlay keeps every workload, policy and image
+# pin, and replaces the three config maps with these files plus the list of
+# graphs the pods may touch. Copy the directory to the root of your own repo
+# and point `resources` at the released harness instead of the checkout:
+#
+#   resources:
+#     - github.com/kislow/kio//deploy?ref=v0.24.0
+#
+# It lives outside deploy/ because kustomize refuses a base that contains its
+# overlay. Rendered and checked by `make check-manifests` next to the base.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: harness
+
+resources:
+  - ../../deploy
+  # Optional: the vault pusher, for people who keep notes in an Obsidian vault
+  # (docs/vault.md). The knowledge base runs without it. To enable it,
+  # uncomment this line, the vault-pusher-git generator, the vault entry of
+  # `images:` and the vault-pusher patch below.
+  # - ../../deploy/vault
+
+configMapGenerator:
+  - name: kb-config
+    behavior: replace
+    files:
+      - aliases.yaml
+      - projects.yaml
+  - name: kb-models
+    behavior: replace
+    envs:
+      - models.env
+  - name: ki-mcp-config
+    behavior: replace
+    files:
+      - config.json=mcp-config.json
+  # Optional vault pusher: commits as the identity that owns the vault repo in
+  # projects.yaml; merge replaces this one file and keeps known_hosts.
+  # - name: vault-pusher-git
+  #   behavior: merge
+  #   files:
+  #     - gitconfig
+
+# The base pulls the project's images from ghcr.io/kislow. To run them from a
+# registry of your own, for example a private mirror in your cloud account, map
+# the base's full image names onto it (kustomize matches images after the base
+# has been rendered); the release tag stays as the base pinned it. The vault
+# image has no public copy: build it yourself (docs/vault.md) and map
+# registry.example.com/kio-vault, the base's placeholder, to where you pushed it.
+# deploy/check.py accepts ghcr.io/<owner>/kio-* and
+# <account>.dkr.ecr.<region>.amazonaws.com/kio-*.
+#
+# images:
+#   - name: ghcr.io/kislow/kio-kb
+#     newName: 123456789012.dkr.ecr.eu-west-1.amazonaws.com/kio-kb
+#   - name: ghcr.io/kislow/kio-mcp
+#     newName: 123456789012.dkr.ecr.eu-west-1.amazonaws.com/kio-mcp
+#   - name: registry.example.com/kio-vault
+#     newName: 123456789012.dkr.ecr.eu-west-1.amazonaws.com/kio-vault
+
+patches:
+  # The graphs the worker and kb-query may touch must match the brains the
+  # MCP config serves (deploy/check.py refuses otherwise). Strategic merge
+  # keys the env list by name, so the patch is one value, not an index.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: kb-worker
+      spec:
+        template:
+          spec:
+            containers:
+              - name: worker
+                env:
+                  - name: KI_ALLOWED_GRAPHS
+                    value: cortex,brain-voice
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: kb-query
+      spec:
+        template:
+          spec:
+            containers:
+              - name: kb-query
+                env:
+                  - name: KI_ALLOWED_GRAPHS
+                    value: cortex,brain-voice
+  # The private hostnames: ki-mcp (what config.yaml's knowledge_base.url
+  # names) and FalkorDB Browser. Whatever fronts Traefik must admit only your
+  # VPN's addresses for both.
+  - target:
+      kind: IngressRoute
+      name: ki-mcp
+    patch: |
+      - op: replace
+        path: /spec/routes/0/match
+        value: Host(`ki.example.com`) && (PathPrefix(`/mcp`) || Path(`/healthz`))
+  - target:
+      kind: IngressRoute
+      name: falkordb-browser
+    patch: |
+      - op: replace
+        path: /spec/routes/0/match
+        value: Host(`falkor.example.com`)
+  - patch: |
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: falkordb
+      spec:
+        template:
+          spec:
+            containers:
+              - name: falkordb
+                env:
+                  - name: NEXTAUTH_URL
+                    value: https://falkor.example.com
+  # Optional vault pusher: your vault repo (the deploy key must be able to
+  # push to it) and the vault's name in Obsidian Sync.
+  # - patch: |
+  #     apiVersion: apps/v1
+  #     kind: Deployment
+  #     metadata:
+  #       name: vault-pusher
+  #     spec:
+  #       template:
+  #         spec:
+  #           containers:
+  #             - name: sync
+  #               env:
+  #                 - name: OBSIDIAN_VAULT
+  #                   value: notes
+  #             - name: pusher
+  #               env:
+  #                 - name: VAULT_REMOTE
+  #                   value: git@github.com:your-github-user/notes.git

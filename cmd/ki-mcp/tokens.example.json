@@ -1,0 +1,20 @@
+[
+  {
+    "id": "laptop-1",
+    "sha256": "replace-with-output-of: printf '%s' \"$SECRET\" | sha256sum",
+    "brains": ["cortex", "acme", "voice"],
+    "expires": "2027-01-01T00:00:00Z"
+  },
+  {
+    "id": "laptop-1-sensitive",
+    "sha256": "a-separate-secret-only-used-by-sensitive-sessions",
+    "brains": ["cortex", "acme", "client", "client-*"],
+    "expires": "2026-12-01T00:00:00Z"
+  },
+  {
+    "id": "laptop-2-sensitive",
+    "sha256": "this-machine-only-works-on-one-client",
+    "brains": ["cortex", "client", "client-acme"],
+    "expires": "2026-12-01T00:00:00Z"
+  }
+]

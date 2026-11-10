@@ -1,0 +1,129 @@
+# FalkorDB: one graph per brain (cortex, brain-<name>). Which graphs a pod may
+# touch is set by KI_ALLOWED_GRAPHS; which brains a device may read is set by
+# its ki-mcp token.
+apiVersion: v1
+kind: Service
+metadata:
+  name: falkordb
+  labels:
+    app.kubernetes.io/name: falkordb # selected by the ServiceMonitor in monitoring.yaml
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: falkordb
+  ports:
+    - name: redis
+      port: 6379
+    - name: browser
+      port: 3000
+    - name: metrics
+      port: 9121
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: falkordb
+spec:
+  serviceName: falkordb
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: falkordb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: falkordb
+    spec:
+      containers:
+        - name: falkordb
+          image: falkordb
+          ports:
+            - name: redis
+              containerPort: 6379
+            - name: browser
+              containerPort: 3000
+          env:
+            - name: FALKORDB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kb-secrets, key: falkordb-password }
+            # AOF for durability, RDB snapshots for backups. Data on the PVC at
+            # the image's own data path: the image's run.sh passes --dir
+            # "$FALKORDB_DATA_PATH" after REDIS_ARGS, so a --dir in REDIS_ARGS is
+            # overridden and the graph would live in the container filesystem
+            # (lost on every restart). Since 6.0 /data in the image is a link to
+            # this path, and run.sh hands the data to its unprivileged user only
+            # when FALKORDB_DATA_PATH is the real directory: through the link it
+            # changed the top folder alone and redis-server could not write its
+            # manifest.
+            - name: FALKORDB_DATA_PATH
+              value: /var/lib/falkordb/data
+            - name: REDIS_ARGS
+              value: "--requirepass $(FALKORDB_PASSWORD) --appendonly yes --save 900 1 --save 300 100"
+            # FalkorDB Browser (NextAuth) builds its redirects from this URL;
+            # without it they point at 0.0.0.0:3000 behind the proxy.
+            # The configuration overlay patches this to the real hostname
+            # (examples/config/kustomization.yaml).
+            - name: NEXTAUTH_URL
+              value: https://falkor.example.com
+            # Module arguments. graphiti fans out many searches at once while it
+            # deduplicates, in bursts during a bulk merge; a full queue answers
+            # "Max pending queries exceeded" and the batch fails. 1000 since
+            # 2026-10-25 (100 overflowed under bulk ingest while FalkorDB sat
+            # idle): queued queries cost little memory and only wait.
+            - name: FALKORDB_ARGS
+              value: "MAX_QUEUED_QUERIES 1000"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/falkordb/data
+          readinessProbe:
+            tcpSocket: { port: redis }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 512Mi }
+            limits: { memory: 2Gi }
+        # Metrics for the harness alerts (docs/operations.md, "Alerts"): up,
+        # keys per db (0 means the graphs are gone), AOF state, memory. Talks
+        # to FalkorDB over the pod's loopback; the scrape comes from the
+        # monitoring namespace through the falkordb-metrics-from-prometheus
+        # network policy.
+        - name: metrics
+          image: redis-exporter
+          args: ["--redis.addr=redis://127.0.0.1:6379"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kb-secrets, key: falkordb-password }
+          ports:
+            - name: metrics
+              containerPort: 9121
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+# FalkorDB Browser ships in the image and listens on 3000. Traefik serves it
+# on its own hostname, private like ki-mcp's (reachable only over your VPN),
+# and the network policy falkordb-browser-from-traefik opens just that port.
+# It asks for the FalkorDB password on login (host localhost, port 6379).
+# The hostname is configuration: the overlay patches the Host rule
+# (examples/config/kustomization.yaml).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: falkordb-browser
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`falkor.example.com`)
+      services:
+        - name: falkordb
+          port: 3000

@@ -1,0 +1,4 @@
+# Custom runner labels for actionlint: the self-hosted runners picked by the RUNNER repository variable.
+self-hosted-runner:
+  labels:
+    - k3s

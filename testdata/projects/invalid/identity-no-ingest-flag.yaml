@@ -1,0 +1,5 @@
+# Every identity must say whether its repos may be ingested.
+sensitive_brains: [client]
+identities:
+  personal: {github_user: alice, email: me@example.com, credential: personal}
+projects: []

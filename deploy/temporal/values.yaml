@@ -1,0 +1,81 @@
+# Temporal on k3s, backed by the Postgres in postgres.yaml.
+# Written against temporalio/helm-charts chart 1.7.0 (server 1.32.0).
+#
+# Deployed by Argo CD from your GitOps repo at the harness release tag: the
+# chart with this file (app "temporal"), and postgres.yaml (app
+# "temporal-postgres", synced first because the chart's schema Job runs as a
+# PreSync hook). The temporal-db-secret comes from your secrets operator.
+#
+# The Web UI is served by Traefik on its own hostname. It has no login of its
+# own, so whatever fronts Traefik must admit only your VPN's addresses, as for
+# ki-mcp. The hostname below is a placeholder: the Argo CD application sets
+# web.ingress.hosts to the real name (Helm values from the GitOps repo win
+# over this file). Without the VPN:
+#   kubectl -n temporal port-forward svc/temporal-web 8080:8080
+
+# Chart 1.7.0 ships server/admin-tools 1.32.0 and UI 2.54.1; these pin the
+# newer releases. Drop them when the chart's defaults catch up.
+server:
+  image:
+    tag: 1.32.1
+  replicaCount: 1
+  # Every service exposes server metrics on :9090; the chart's ServiceMonitors
+  # hand them to a monitoring stack that selects ServiceMonitors in every
+  # namespace; the harness alerts (docs/operations.md) watch workflow_failed
+  # and workflow_success for SyncProjects. Namespace temporal has no network
+  # policy, so the scrape needs no rule.
+  metrics:
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+  config:
+    persistence:
+      numHistoryShards: 64
+      datastores:
+        default:
+          sql:
+            createDatabase: true
+            manageSchema: true
+            pluginName: postgres12
+            driverName: postgres12
+            databaseName: temporal
+            connectAddr: "postgres.temporal.svc.cluster.local:5432"
+            connectProtocol: tcp
+            user: temporal
+            existingSecret: temporal-db-secret
+            maxConns: 20
+            maxIdleConns: 20
+        visibility:
+          sql:
+            createDatabase: true
+            manageSchema: true
+            pluginName: postgres12
+            driverName: postgres12
+            databaseName: temporal_visibility
+            connectAddr: "postgres.temporal.svc.cluster.local:5432"
+            connectProtocol: tcp
+            user: temporal
+            existingSecret: temporal-db-secret
+            maxConns: 10
+            maxIdleConns: 10
+    namespaces:
+      create: true
+      namespace:
+        - name: default
+          retention: 7d
+
+admintools:
+  image:
+    tag: "1.32.1"
+
+web:
+  enabled: true
+  image:
+    tag: 2.57.0
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: true
+    className: traefik
+    hosts:
+      - temporal.example.com

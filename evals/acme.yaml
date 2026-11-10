@@ -1,0 +1,15 @@
+# Golden questions for one project brain (brain-acme in the example
+# configuration). Phase 3 runs these nightly against every model in use and
+# records a score per model. Fill in from real decisions as they land; 20 to
+# 30 per brain is the target.
+brain: acme
+questions:
+  - id: routing-library
+    ask: "Which HTTP router does the Acme backend use, and why?"
+    expect_facts:
+      - "<router name>"
+      - "<the rationale from the decision record>"
+  - id: error-wrapping
+    ask: "How should errors be wrapped in Acme Go code?"
+    expect_facts:
+      - "<the convention>"

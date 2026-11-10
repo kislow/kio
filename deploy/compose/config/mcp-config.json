@@ -1,0 +1,8 @@
+{
+  "listen": "0.0.0.0:8787",
+  "tokens_file": "/etc/ki/tokens/tokens.json",
+  "default_budget": 3000,
+  "brains": {
+    "cortex": { "graph": "cortex", "backend": "http://kb-query:8000" }
+  }
+}

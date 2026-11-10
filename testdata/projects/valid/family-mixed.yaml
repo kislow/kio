@@ -1,0 +1,6 @@
+# client-acme is sensitive through the family, acme is not; one repo may feed both.
+sensitive_brains: [client-*]
+identities:
+  personal: {github_user: alice, email: me@example.com, credential: personal, ingest: true}
+projects:
+  - {name: x, repo: https://github.com/a/b, identity: personal, brains: [client-acme, acme], ingest: [{path: a/, brain: client-acme}, {path: b/, brain: acme}]}

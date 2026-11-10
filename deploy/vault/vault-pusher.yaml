@@ -1,0 +1,103 @@
+# Holds the Obsidian login, the synced vault and its git metadata, so a restart resumes where it was.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vault-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault-pusher
+spec:
+  replicas: 1
+  # One writer on a ReadWriteOnce volume: the old pod must stop before the new one starts.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vault-pusher
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vault-pusher
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: sync
+          image: kio-vault
+          imagePullPolicy: IfNotPresent
+          command: ["vault-sync"]
+          env:
+            - { name: HOME, value: /data/home }
+            - { name: VAULT_DIR, value: /data/vault }
+            - { name: STATE_DIR, value: /data/state }
+            # The remote vault's name in Obsidian Sync and this pod's device
+            # name there; both appear in the one-time setup hint the sync
+            # container logs. The overlay patches OBSIDIAN_VAULT.
+            - { name: OBSIDIAN_VAULT, value: vault }
+            - { name: OBSIDIAN_DEVICE, value: cluster }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 20m, memory: 96Mi }
+            limits: { memory: 384Mi }
+        - name: pusher
+          image: kio-vault
+          imagePullPolicy: IfNotPresent
+          command: ["vault-pusher"]
+          env:
+            - { name: HOME, value: /data/home }
+            - { name: VAULT_DIR, value: /data/vault }
+            - { name: STATE_DIR, value: /data/state }
+            # The overlay patches VAULT_REMOTE to your vault repo.
+            - { name: VAULT_REMOTE, value: "git@github.com:alice/vault.git" }
+            - { name: KI_VAULT, value: /data/vault }
+            - { name: KI_HOME, value: /opt/kio }
+            - { name: GIT_CONFIG_GLOBAL, value: /etc/vault-git/gitconfig }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+            - { name: git, mountPath: /etc/vault-git, readOnly: true }
+            - { name: key, mountPath: /etc/vault-key, readOnly: true }
+            # ki reads projects.yaml from <KI_HOME>/deploy/config, the same file ingest uses.
+            - { name: projects, mountPath: /opt/kio/deploy/config, readOnly: true }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: vault-data
+        - name: tmp
+          emptyDir: {}
+        - name: git
+          configMap:
+            name: vault-pusher-git
+        - name: projects
+          configMap:
+            name: kb-config
+        # Optional so the pod starts before the key exists; the pusher waits for it.
+        - name: key
+          secret:
+            secretName: vault-deploy-key
+            optional: true
+            defaultMode: 0440

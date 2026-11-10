@@ -1,0 +1,4 @@
+sensitive_brains: ["*"]
+identities:
+  personal: {github_user: alice, email: me@example.com, credential: personal, ingest: true}
+projects: []

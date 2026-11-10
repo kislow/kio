@@ -1,0 +1,151 @@
+# Local stack for the knowledge base: FalkorDB, a Temporal dev server, the
+# ingest worker, kb-query, the embedding service and ki-mcp, on one compose
+# network. Only ki-mcp publishes a port, bound to loopback.
+#
+# First run deploy/compose/setup.sh, then fill in config/models.env. Then:
+#   docker compose up -d --wait
+# docs/local-stack.md has the rest, including what compose does not inherit
+# from the cluster (its default-deny network policy).
+name: ki-local
+
+x-kb-environment: &kb-environment
+  FALKORDB_HOST: falkordb
+  FALKORDB_PASSWORD: ${FALKORDB_PASSWORD:?run deploy/compose/setup.sh first}
+  KI_ALLOWED_GRAPHS: cortex
+  KI_EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:?run deploy/compose/setup.sh first}
+
+services:
+  falkordb:
+    # Same digest as deploy/kustomization.yaml. Pulled from Docker Hub, not
+    # bundled: FalkorDB's server is under the SSPL, see docs/local-stack.md.
+    image: falkordb/falkordb:6.0.3@sha256:0fb85036662ce3d1206530a38fdf7df5a92b1fb31ad23087f8d4e89038ce0812
+    restart: unless-stopped
+    environment:
+      FALKORDB_PASSWORD: ${FALKORDB_PASSWORD:?run deploy/compose/setup.sh first}
+      FALKORDB_DATA_PATH: /var/lib/falkordb/data
+      REDIS_ARGS: "--requirepass ${FALKORDB_PASSWORD} --appendonly yes --save 900 1 --save 300 100"
+      FALKORDB_ARGS: "MAX_QUEUED_QUERIES 1000"
+    volumes:
+      - falkordb-data:/var/lib/falkordb/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$FALKORDB_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  temporal:
+    # The Temporal CLI image: `server start-dev` is its embedded development
+    # server. It keeps workflow history in memory: a restart loses history, and
+    # the worker recreates the sync schedule on start. Ingest state is in FalkorDB.
+    image: temporalio/temporal:1.10.0@sha256:003508da05989e7cf0d583cfce521c4bb2732e733574e3040db8f1284783baa2
+    restart: unless-stopped
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--headless"]
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "127.0.0.1:7233"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+      start_period: 10s
+
+  embeddings:
+    # The cluster's embedding service (deploy/kb/embeddings.yaml), same model.
+    # The first start downloads the model from Hugging Face into the cache volume.
+    # EMBEDDINGS_TAG picks the arm64 build on arm64 hosts (setup.sh sets it).
+    image: ghcr.io/huggingface/text-embeddings-inference:${EMBEDDINGS_TAG:-cpu-1.9.4}
+    restart: unless-stopped
+    command:
+      - --model-id=BAAI/bge-small-en-v1.5
+      - --port=8080
+      - --huggingface-hub-cache=/data
+      - --max-client-batch-size=512
+    environment:
+      API_KEY: ${EMBEDDING_API_KEY:?run deploy/compose/setup.sh first}
+    volumes:
+      - embeddings-cache:/data
+
+  kb-query:
+    build:
+      context: ../../kb
+    image: kio-kb:local
+    restart: unless-stopped
+    command: ["ki-kb-query"]
+    env_file: config/models.env
+    environment: *kb-environment
+    expose:
+      - "8000"
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  kb-worker:
+    build:
+      context: ../../kb
+    image: kio-kb:local
+    restart: unless-stopped
+    command: ["ki-kb-worker"]
+    env_file: config/models.env
+    environment:
+      <<: *kb-environment
+      KI_TASK_QUEUE: ki-ingest
+      KI_METRICS_PORT: "9464"
+      KI_PROJECTS_FILE: /etc/ki/projects.yaml
+      KI_ALIASES_FILE: /etc/ki/aliases.yaml
+      KI_GIT_TOKENS_DIR: /etc/ki/git-tokens
+      SEMAPHORE_LIMIT: "10"
+      TEMPORAL_ADDRESS: temporal:7233
+    volumes:
+      # KI_LOCAL_PROJECTS lets smoke-test.sh ingest the origin of this checkout
+      # for one run; by default the example in config/ is used.
+      - ${KI_LOCAL_PROJECTS:-./config/projects.yaml}:/etc/ki/projects.yaml:ro
+      - ./config/aliases.yaml:/etc/ki/aliases.yaml:ro
+      # One read-only GitHub token per credential name, as in the cluster's
+      # kb-git-tokens secret: local/git-tokens/<credential>.
+      - ./local/git-tokens:/etc/ki/git-tokens:ro
+    depends_on:
+      falkordb:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      # The worker serves metrics before it connects to Temporal; this checks
+      # the process is up, not that the schedule is running.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9464/metrics', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  ki-mcp:
+    # The same Dockerfile as the cluster image. Distroless, so no shell and no
+    # health command: smoke-test.sh polls /healthz from the host instead.
+    build:
+      context: ../..
+      dockerfile: cmd/ki-mcp/Dockerfile
+    image: kio-mcp:local
+    restart: unless-stopped
+    volumes:
+      - ./config/mcp-config.json:/etc/ki/config.json:ro
+      # Holds SHA-256 digests of device tokens, never the tokens themselves.
+      - ./local/tokens.json:/etc/ki/tokens/tokens.json:ro
+    ports:
+      - "127.0.0.1:${KI_MCP_PORT:-8787}:8787"
+    depends_on:
+      kb-query:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  falkordb-data:
+  embeddings-cache:

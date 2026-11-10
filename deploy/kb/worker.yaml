@@ -1,0 +1,111 @@
+# The worker has no clients; this Service exists so the ServiceMonitor in
+# monitoring.yaml can scrape its metrics.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kb-worker
+  labels:
+    app.kubernetes.io/name: kb-worker
+spec:
+  selector:
+    app.kubernetes.io/name: kb-worker
+  ports:
+    - name: metrics
+      port: 9464
+---
+# Ingest worker: runs the workflows, owns the sync schedule, and syncs
+# every project into its brains.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kb-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kb-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kb-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        # Secret files are owned by root; fsGroup makes them group-readable for uid 10001.
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: worker
+          image: kio-kb
+          # Pinned to a release tag (deploy/kustomization.yaml); release tags are never reused.
+          imagePullPolicy: IfNotPresent
+          command: ["ki-kb-worker"]
+          ports:
+            - name: metrics
+              containerPort: 9464
+          envFrom:
+            - configMapRef:
+                name: kb-models
+          env:
+            - name: KI_TASK_QUEUE
+              value: ki-ingest
+            # Prometheus metrics (ki_llm_*, ki_ingest_*): scraped through the
+            # kb-worker Service by the ServiceMonitor in monitoring.yaml.
+            - name: KI_METRICS_PORT
+              value: "9464"
+            - name: KI_ALLOWED_GRAPHS
+              value: cortex,brain-voice,brain-acme,brain-security,brain-client,brain-client-*
+            - name: KI_PROJECTS_FILE
+              value: /etc/ki/projects.yaml
+            - name: KI_ALIASES_FILE
+              value: /etc/ki/aliases.yaml
+            - name: KI_GIT_TOKENS_DIR
+              value: /etc/ki/git-tokens
+            # graphiti's parallelism per operation (default 20), which bounds how
+            # many documents of one bulk batch are extracted at once. 10 because
+            # 1,046 extraction calls on 2026-10-23 met no rate limit; below the
+            # default so one ingest cannot flood the cluster's single FalkorDB.
+            - name: SEMAPHORE_LIMIT
+              value: "10"
+            - name: TEMPORAL_ADDRESS
+              value: temporal-frontend.temporal.svc.cluster.local:7233
+            - name: FALKORDB_HOST
+              value: falkordb-0.falkordb.harness.svc.cluster.local
+            - name: FALKORDB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kb-secrets, key: falkordb-password }
+            - name: KI_LLM_API_KEY
+              valueFrom:
+                secretKeyRef: { name: kb-secrets, key: llm-api-key, optional: true }
+            - name: KI_EMBEDDING_API_KEY
+              valueFrom:
+                secretKeyRef: { name: kb-secrets, key: embedding-api-key, optional: true }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/ki
+              readOnly: true
+            # One read-only token per GitHub org or account, keyed by the
+            # credential name in projects.yaml.
+            - name: git-tokens
+              mountPath: /etc/ki/git-tokens
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+      volumes:
+        - name: config
+          configMap:
+            name: kb-config
+        - name: git-tokens
+          secret:
+            secretName: kb-git-tokens
+            defaultMode: 0440
+        - name: tmp
+          emptyDir: {}

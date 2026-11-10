@@ -1,0 +1,55 @@
+# A monitoring stack that selects ServiceMonitors in every namespace needs
+# nothing more than this to scrape the harness: the redis exporter sidecar on
+# the FalkorDB pod, the worker's extraction metrics (tokens, calls, documents),
+# kb-query's and ki-mcp's latency. The alert rules and dashboards live with
+# your cluster's monitoring, not here; this repo only exposes the numbers (see
+# docs/operations.md, "Alerts" and "Cost and latency").
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: falkordb
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: falkordb
+  endpoints:
+    - port: metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kb-worker
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kb-worker
+  endpoints:
+    - port: metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kb-query
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kb-query
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ki-mcp
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ki-mcp
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

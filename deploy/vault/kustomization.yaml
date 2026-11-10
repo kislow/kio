@@ -1,0 +1,26 @@
+# Optional: not part of the base unless deploy/kustomization.yaml lists it, or an
+# overlay adds this directory (examples/config/kustomization.yaml); docs/vault.md.
+# The vault pusher: Obsidian Sync -> a folder on a volume -> ki vault push -> your vault repo.
+# One-time login and the deploy key: docs/operations.md, "Vault pusher". The
+# remote, the Obsidian vault name and the committer identity (gitconfig) are
+# configuration: the overlay sets them (examples/config/kustomization.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - vault-pusher.yaml
+
+configMapGenerator:
+  - name: vault-pusher-git
+    files:
+      - gitconfig
+      - known_hosts
+
+# Pinned like the base's images; the release PR bumps the tag. There is no
+# public kio-vault image (its Dockerfile installs a package that cannot be
+# redistributed): build and push it yourself, see docs/vault.md, and replace the
+# placeholder registry with an `images:` entry in your overlay.
+images:
+  - name: kio-vault
+    newName: registry.example.com/kio-vault
+    newTag: 0.43.0 # x-release-please-version

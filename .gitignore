@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+coverage.xml
+
+# Go
+cover.out
+/ki
+/ki-mcp
+dist/
+
+# Never commit real tokens or secrets
+tokens.json
+*.secret
+.env
+
+# Node (diagram/)
+node_modules/

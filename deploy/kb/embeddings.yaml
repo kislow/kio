@@ -1,0 +1,90 @@
+# Embeddings: BAAI/bge-small-en-v1.5 served by Hugging Face text-embeddings-inference
+# on CPU, so embedding never leaves the cluster. Graphiti calls its
+# OpenAI-compatible API at http://embeddings.harness.svc.cluster.local:8080/v1.
+#
+# Only the worker and kb-query may call it (network policy), and
+# every request must carry the key from kb-secrets/embedding-api-key, which the
+# pod requires to start. The model is downloaded once into the PVC.
+#
+# Resources are a starting point: measure under ingest load, then set them.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: embeddings-cache
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: embeddings
+spec:
+  selector:
+    app.kubernetes.io/name: embeddings
+  ports:
+    - name: http
+      port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embeddings
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # the cache PVC is ReadWriteOnce
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: embeddings
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: embeddings
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: tei
+          image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4
+          imagePullPolicy: IfNotPresent
+          args:
+            - --model-id=BAAI/bge-small-en-v1.5
+            - --port=8080
+            - --huggingface-hub-cache=/data
+            # Graphiti sends every fact or entity of a document in one request.
+            - --max-client-batch-size=512
+          env:
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef: { name: kb-secrets, key: embedding-api-key }
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: cache
+              mountPath: /data
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+          startupProbe:
+            # The first start downloads the model.
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            failureThreshold: 60
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 2Gi }
+      volumes:
+        - name: cache
+          persistentVolumeClaim:
+            claimName: embeddings-cache

@@ -1,0 +1,28 @@
+{
+  "name": "ki-diagram",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Builds tldraw drawings for the Obsidian vault from spec files, merges hand edits, renders PDFs",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "ki-diagram": "bin/ki-diagram.mjs"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@tldraw/assets": "5.4.0",
+    "@tldraw/store": "5.4.0",
+    "@tldraw/tlschema": "5.4.0",
+    "@tldraw/utils": "5.4.0",
+    "esbuild": "0.28.2",
+    "playwright-core": "1.64.0",
+    "react": "19.2.9",
+    "react-dom": "19.2.9",
+    "tldraw": "5.4.0",
+    "yaml": "2.9.1"
+  }
+}

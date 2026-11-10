@@ -1,0 +1,8 @@
+identities:
+  work: {github_user: alice, email: alice@work.example, credential: work, ingest: true}
+projects:
+  - name: acme-api
+    repo: https://github.com/acme/api
+    identity: work
+    brains: [cortex]
+    vault_folders: ["../acme"]

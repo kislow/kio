@@ -1,0 +1,74 @@
+# ==============================================================================
+# Release: automated versioning via release-please, then the publish workflow.
+#
+# On every push to main, release-please:
+#   - reads Conventional Commits since the last release
+#   - keeps one release PR open: version bump, CHANGELOG.md, kb/pyproject.toml,
+#     and the image tags in deploy/kustomization.yaml; this workflow then
+#     re-locks kb/uv.lock on that PR so ki-kb's own version matches
+#   - when that PR is merged: tags vX.Y.Z and creates the GitHub Release, and
+#     the tag push starts publish.yml
+#
+# release-please runs with RELEASE_PLEASE_TOKEN (the maintainer's fine-grained
+# token), not GITHUB_TOKEN: events from GITHUB_TOKEN start no workflows
+# (GitHub anti-loop), so release PRs got no CI and the tag could not start
+# publish. The uv.lock push uses the same token so the release PR's last
+# commit is checked too.
+#
+# Concurrency: serialised on main, so back-to-back merges queue instead of racing.
+# ==============================================================================
+
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-please-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# The repository variable RUNNER picks the runner label; unset, jobs run on
+# GitHub-hosted ubuntu-latest.
+jobs:
+  release-please:
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: googleapis/release-please-action@v5.0.0
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      # release-please's toml updater cannot select ki-kb's entry in uv.lock, so
+      # the lock would lag pyproject.toml and publish's `uv lock --check` fail
+      # (#324). Re-lock on the release PR's branch after each update.
+      - uses: actions/checkout@v7.0.1
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        with:
+          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+      - uses: astral-sh/setup-uv@v10.3.2
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+      - name: Lock ki-kb at the release version
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        working-directory: kb
+        run: |
+          set -euo pipefail
+          uv lock
+          if git diff --quiet -- uv.lock; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: lock ki-kb at the release version" -- uv.lock
+          git push
+

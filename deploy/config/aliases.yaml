@@ -1,0 +1,9 @@
+# Canonical name -> aliases. Applied to every document before Graphiti
+# extraction (outside code blocks), case-insensitively, so one thing becomes
+# one node. Only add unambiguous aliases: "vault" or "tf" would also rewrite
+# ordinary words.
+Kubernetes: [k8s]
+Azure Kubernetes Service: [AKS]
+Amazon Elastic Kubernetes Service: [EKS]
+PostgreSQL: [postgres]
+GitHub Actions: [GHA]

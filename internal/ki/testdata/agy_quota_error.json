@@ -1,0 +1,1 @@
+{"status":"ERROR","response":"","error":"Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 147h25m10s.","duration_seconds":268.592417,"num_turns":1,"usage":{"input_tokens":35748,"output_tokens":38696,"thinking_tokens":12987,"cache_read_tokens":43155,"total_tokens":74444}}
