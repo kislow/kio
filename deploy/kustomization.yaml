@@ -45,10 +45,10 @@ configMapGenerator:
 images:
   - name: kio-kb
     newName: ghcr.io/kislow/kio-kb
-    newTag: 0.43.0 # x-release-please-version
+    newTag: 0.1.0 # x-release-please-version
   - name: kio-mcp
     newName: ghcr.io/kislow/kio-mcp
-    newTag: 0.43.0 # x-release-please-version
+    newTag: 0.1.0 # x-release-please-version
   - name: falkordb
     # Pinned by digest so a restart never pulls a different FalkorDB. This is
     # falkordb/falkordb 6.0.3 (image also carries FalkorDB Browser). From 4.x,
