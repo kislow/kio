@@ -1,0 +1,9 @@
+# The kb image builds from the repo root so it can ship LICENSE and NOTICE;
+# send BuildKit only what kb/Dockerfile copies.
+*
+!LICENSE
+!NOTICE
+!kb/pyproject.toml
+!kb/uv.lock
+!kb/src
+**/__pycache__

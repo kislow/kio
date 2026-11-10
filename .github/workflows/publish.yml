@@ -202,7 +202,7 @@ jobs:
     strategy:
       matrix:
         # Keep the components in step with the images list in release-tags.
-        include: ${{ fromJSON(vars.PUBLISH_VAULT == 'true' && '[{"component":"mcp","context":".","file":"cmd/ki-mcp/Dockerfile"},{"component":"kb","context":"kb","file":"kb/Dockerfile"},{"component":"vault","context":".","file":"vault/Dockerfile"}]' || '[{"component":"mcp","context":".","file":"cmd/ki-mcp/Dockerfile"},{"component":"kb","context":"kb","file":"kb/Dockerfile"}]') }}
+        include: ${{ fromJSON(vars.PUBLISH_VAULT == 'true' && '[{"component":"mcp","context":".","file":"cmd/ki-mcp/Dockerfile"},{"component":"kb","context":".","file":"kb/Dockerfile"},{"component":"vault","context":".","file":"vault/Dockerfile"}]' || '[{"component":"mcp","context":".","file":"cmd/ki-mcp/Dockerfile"},{"component":"kb","context":".","file":"kb/Dockerfile"}]') }}
     steps:
       - uses: actions/checkout@v7.0.1
       # The registry layer cache needs a docker-container builder, not the default driver.
