@@ -90,7 +90,7 @@ func (a *App) delegateLog(ctx context.Context, args []string) error {
 				entry.Issue = issueNumber(string(brief))
 			}
 			if r.Status == ki.JobPR {
-				entry.PR = r.Detail
+				entry.PR, _, _ = strings.Cut(r.Detail, ";")
 			}
 		}
 		jobs = append(jobs, entry)

@@ -30,12 +30,16 @@ type Result struct {
 	Issue          string `json:"issue,omitempty"`
 	// Kind is "" for a delegated task, "review" for the agent `ki approve --review` runs
 	// and "approve" for the approval itself; PR is the pull request (owner/repo#N) of the last two.
-	Kind     string `json:"kind,omitempty"`
-	PR       string `json:"pr,omitempty"`
-	Branch   string `json:"branch,omitempty"`
-	Worktree string `json:"worktree,omitempty"`
-	Status   string `json:"status"`
-	Detail   string `json:"detail"`
+	Kind string `json:"kind,omitempty"`
+	PR   string `json:"pr,omitempty"`
+	// Branch is the branch that holds the job's work: the pull request's head
+	// when the job ended PR, else the one the worktree ended on. ScratchBranch is
+	// the name ki gave the worktree, kept only when the worker renamed it.
+	Branch        string `json:"branch,omitempty"`
+	ScratchBranch string `json:"scratch_branch,omitempty"`
+	Worktree      string `json:"worktree,omitempty"`
+	Status        string `json:"status"`
+	Detail        string `json:"detail"`
 	// Note is what the planner must still do or know: a check ki skipped for a sandboxed worker.
 	Note       string     `json:"note,omitempty"`
 	Session    string     `json:"session,omitempty"`

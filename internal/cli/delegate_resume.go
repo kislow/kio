@@ -27,6 +27,9 @@ var resumeRefused = map[string]bool{"--task": true, "--issue": true, "--here": t
 // --agent, with the original task and a handoff note on what is done.
 // args are the job then delegate flags; queued is set when the queue starts it.
 func (a *App) delegateResume(ctx context.Context, args []string, queued *ki.QueueEntry) error {
+	if err := a.refuseInWorker(); err != nil {
+		return err
+	}
 	if len(args) == 0 || !ki.ValidJobID(args[0]) {
 		return fail("usage: ki delegate resume <job> [--role R | --agent A] [--when-available] [--json] (a QUOTA, STALLED or FAILED job from ki delegate ls)")
 	}
@@ -98,7 +101,7 @@ func (a *App) jobTask(id string) (task string, draft bool, err error) {
 		return "", false, fail("job %s has no brief to resume from: %v", id, berr)
 	}
 	text := string(brief)
-	for _, marker := range []string{"\n\nYou run in edits mode.", "\n\nIf you open a pull request"} {
+	for _, marker := range []string{"\n\n" + ki.WorkerRole, "\n\nYou run in edits mode.", "\n\nIf you open a pull request"} {
 		if i := strings.Index(text, marker); i >= 0 {
 			text = text[:i]
 		}
@@ -106,19 +109,25 @@ func (a *App) jobTask(id string) (task string, draft bool, err error) {
 	return strings.TrimSpace(text), draft, nil
 }
 
+// workStart is the base a job's branch left (origin's default branch, else the
+// repo's checked-out branch) and the commit where it left it, "" when unknown.
+func workStart(ctx context.Context, root, dir string) (base, start string) {
+	base = git(ctx, dir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+	if base == "" {
+		base = git(ctx, root, "symbolic-ref", "--quiet", "--short", "HEAD")
+	}
+	if base != "" {
+		start = git(ctx, dir, "merge-base", "HEAD", base)
+	}
+	return base, start
+}
+
 // readProgress is how far the work in dir got: commits since the branch left
 // its base (origin's default branch, else the repo's checked-out branch),
 // the diff stat including uncommitted changes, untracked files and, with
 // diff, the diff itself cut short.
 func readProgress(ctx context.Context, root, dir string, diff bool) ki.WorkDone {
-	base := git(ctx, dir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-	if base == "" {
-		base = git(ctx, root, "symbolic-ref", "--quiet", "--short", "HEAD")
-	}
-	start := ""
-	if base != "" {
-		start = git(ctx, dir, "merge-base", "HEAD", base)
-	}
+	base, start := workStart(ctx, root, dir)
 	p := ki.WorkDone{Base: base}
 	if u := git(ctx, dir, "ls-files", "--others", "--exclude-standard"); u != "" {
 		p.Untracked = strings.Split(u, "\n")

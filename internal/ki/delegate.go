@@ -38,6 +38,19 @@ const (
 	JobQueued = "QUEUED"
 )
 
+// JobEnv is set in a delegate worker's environment to its job id; ki delegate
+// refuses to start a job when it is set.
+const JobEnv = "KI_JOB"
+
+// WorkerRole opens the worker paragraph of every brief: instructions about delegating are for the planner.
+const WorkerRole = "You are the worker ki started for this task: do it yourself in this worktree. Instructions about delegating with ki delegate are for the planner and do not apply to you."
+
+// workerRules is the worker paragraph of every brief: the role sentence, then the two
+// habits that decide whether the job ends cleanly.
+const workerRules = WorkerRole + " " +
+	"Run tests, linters and builds in the foreground and wait for them; your turn ends the job, so never leave a command running in the background. " +
+	"Write a pull request body to a file and pass it with gh pr create --body-file, so backticks and quotes reach GitHub unescaped."
+
 // DefaultStall is how long a streaming worker may stay silent before ki ends
 // it, unless --stall or delegate.stall in machine.yaml says otherwise.
 const DefaultStall = 15 * time.Minute
@@ -48,6 +61,9 @@ const statusLines = `You cannot ask questions. Your final message must be exactl
 - DONE: <one-line summary> when the task is complete without a pull request
 - BLOCKED: <the one question you need answered> when you cannot continue without a person
 - FAILED: <reason> when something broke that you could not fix`
+
+// gitConfigRule is stated to every worker: ki sets the commit identity in its environment.
+const gitConfigRule = "Your commit identity is already set. Do not write git config: no `git config user.*`, no `--global`, no edits to `.git/config`."
 
 // The PR line is stated either way, so prose elsewhere in a brief never decides it.
 const (
@@ -66,7 +82,7 @@ const sandboxedStatusLines = `You cannot ask questions. Your final message must 
 // and who does it instead.
 const sandboxedRules = "You run in a sandbox without network access to git remotes and without a browser. " +
 	"Commit only; ki publishes. Do not run `git push` or `gh pr create`, ki pushes your commits and opens the pull request once you exit, and a push or PR you report is never trusted. " +
-	"Commit everything: uncommitted changes are not published and end the job as BLOCKED. " +
+	"Commit everything: uncommitted changes are not published and end the job as BLOCKED. " + gitConfigRule + " " +
 	"If the task asks for a browser check (Playwright, Chromium), skip it and say so in your final line; ki records `" + BrowserSkipped + "` in the result."
 
 // BrowserSkipped is added to the result of a sandboxed job whose brief asked for a browser check.
@@ -78,13 +94,19 @@ var browserCheck = regexp.MustCompile(`(?i)\b(browser|playwright|chromium|puppet
 // AsksBrowserCheck reports whether a brief asks for a browser check.
 func AsksBrowserCheck(task string) bool { return browserCheck.MatchString(task) }
 
-// contract is appended to every brief: the pull request line, then the status lines.
-func contract(draft bool) string {
+// noTraces is in every worker's brief: commits and pull request text reach GitHub.
+const noTraces = "Commits and pull request text carry no agent attribution and no job ids, branch names under `ki/` or worktree paths."
+
+// contract is appended to every brief: the worker sentence, then the rules and status lines.
+func contract(draft bool) string { return "\n\n" + workerRules + contractRules(draft) }
+
+// contractRules is the contract after the worker sentence.
+func contractRules(draft bool) string {
 	pr := prReady
 	if draft {
 		pr = prDraft
 	}
-	return "\n\n" + pr + "\n\n" + statusLines
+	return "\n\n" + noTraces + "\n\n" + gitConfigRule + "\n\n" + pr + "\n\n" + statusLines
 }
 
 // WrapTask is the brief the worker receives: the task plus the contract.
@@ -93,7 +115,7 @@ func WrapTask(task string, draft bool) string { return strings.TrimSpace(task) +
 // WrapSandboxedTask is the brief for a worker ki runs in a sandbox: the task, the
 // rules of the sandbox, then the status lines without a PR, last.
 func WrapSandboxedTask(task string) string {
-	return strings.TrimSpace(task) + "\n\n" + sandboxedRules + "\n\n" + sandboxedStatusLines
+	return strings.TrimSpace(task) + "\n\n" + workerRules + "\n\n" + noTraces + "\n\n" + sandboxedRules + "\n\n" + sandboxedStatusLines
 }
 
 // Sandboxed reports whether ki runs the agent in a sandbox that cannot reach git
@@ -109,10 +131,10 @@ func Sandboxed(agent string, m Mode) bool {
 // WrapEditsTask is the brief for a worker in edits mode: the task, the rules
 // of that mode with the commands it may run, then the contract, last.
 func WrapEditsTask(task string, allow []string, draft bool) string {
-	return strings.TrimSpace(task) + "\n\n" +
+	return strings.TrimSpace(task) + "\n\n" + workerRules + "\n\n" +
 		"You run in edits mode. Edit files with your file tools, not the shell. " +
 		"The only shell commands you may run are: " + strings.Join(allow, ", ") + " (with any arguments). " +
-		"Any other command is refused and ends the job without a result." + contract(draft)
+		"Any other command is refused and ends the job without a result." + contractRules(draft)
 }
 
 // statusMarker finds the last status marker in a line. Cursor's print mode

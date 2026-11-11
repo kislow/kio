@@ -38,5 +38,5 @@ Supersedes: <earlier decision title, or "none">
 Run `ki status --json` to see which project this repo belongs to.
 
 - If the project is `kio`, save to `decisions/<YYYY-MM-DD>-<slug>.md` in this repo, on a branch, and open a PR.
-- Otherwise, if `identity.vault` is true and `KI_VAULT` is set, save to `$KI_VAULT/projects/<project>/decisions/<YYYY-MM-DD> <Short Topic>.md` (Title Case with spaces, as the vault names its notes; kebab-case is only for this repo's `decisions/`), then run `ki vault push -m "decision: <short topic>"` (it commits, pulls with rebase and pushes the vault; if it stops on a conflict, show the user its message and stop). Never write decision records into the project repo itself.
+- Otherwise, if `identity.vault` and `vault_writable` are both true, save to `$KI_VAULT/projects/<project>/decisions/<YYYY-MM-DD> <Short Topic>.md` (Title Case with spaces, as the vault names its notes; kebab-case is only for this repo's `decisions/`), then run `ki vault push -m "decision: <short topic>"` (it commits, pulls with rebase and pushes the vault; if it stops on a conflict, show the user its message and stop). Never write decision records into the project repo itself.
 - If `identity.vault` is false, do not save it anywhere; tell the user it belongs in that organisation's own systems and give them the text.

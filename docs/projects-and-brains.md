@@ -24,6 +24,7 @@ identities:
     email: alice@client-a.com
     credential: client-a
     vault: false                 # never copy this identity's reviews or decisions into the vault
+    vault_read: [projects/acme, reference]   # optional: folders `ki ask` may read; absent means the whole vault
     ingest: true
   employer:
     github_user: alice-work
@@ -63,6 +64,7 @@ workspaces:
 | `board` | Optional GitHub Project title for `/ki-issue`; the skills work without one |
 | `vault_folders` | Optional list of vault folders under `projects/`, valid names, no duplicates. `/ki-recap` reads the folder named after the project plus these, and only those no other identity's project also claims. No folder is derived from the project name |
 | `bulk` | Optional, `false` by default. `true` makes a project off-peak only whatever its size: its ingest waits out `KI_LLM_PEAK_UTC` and a low provider balance, and it syncs after the vault and the other repos (see [Bulk ingest](operations.md#bulk-ingest-speed-and-cost)) |
+| `vault_read` (identity) | Optional list of vault folders, relative to the vault root, that `ki ask` may list, search and read for this identity, for example `[projects/acme, engineering]`. Absent or empty means the whole vault. Absolute paths, `..` and hidden folders are refused by both validators. It limits the vault tools, not the agent: an agent with its own file access, such as Codex in its read-only sandbox, can still read the folder directly. It limits reads only, not what the skills write (see [vault](vault.md#limit-what-an-identity-reads)) |
 | `ingest` (identity) | Required on every identity. `false` for an employer or client whose repos must never be ingested: their projects may list `brains` but no ingest rules, enforced by both validators |
 | `vault` (identity) | `false` keeps the skills from copying that identity's reviews and decisions into the vault, and `ki recap` refuses that identity |
 | `workspaces` | Optional named views. Each workspace lists brains found in its projects, optional project names and board, and vault folders under `projects/` or `diagrams/projects/` that no other workspace equals, contains or sits inside. Brains cannot mix sensitive and non-sensitive entries; `voice` and `security` are refused |

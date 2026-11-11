@@ -327,14 +327,20 @@ func (a *App) vaultConfigured(h *here) bool {
 }
 
 // checkVault tells whether `ki vault push`, and so the note-writing skills,
-// can work on this machine once a vault is configured.
+// can work on this machine once a vault is configured. A folder that is not a
+// git clone is a supported read-only vault, not a failure.
 func (a *App) checkVault(ctx context.Context, c *checks) {
 	dir := a.Getenv("KI_VAULT")
 	if dir == "" {
 		c.note("KI_VAULT", "not set: the skills will not save notes, and ki vault push does nothing here")
 		return
 	}
-	ok := git(ctx, dir, "rev-parse", "--is-inside-work-tree") == "true" && git(ctx, dir, "remote", "get-url", "origin") != ""
+	if info, err := os.Stat(dir); err == nil && info.IsDir() && !a.vaultIsClone(ctx) {
+		c.report(true, "KI_VAULT", a.short(dir)+" read-only (not a git clone)", "")
+		c.report(a.binary() != "", "vault server", "ki vault mcp --read-only is offered to ki sessions", "reinstall ki: make install-cli")
+		return
+	}
+	ok := a.vaultIsClone(ctx) && git(ctx, dir, "remote", "get-url", "origin") != ""
 	detail := a.short(dir)
 	if !ok {
 		detail += " is not a git clone with an origin"

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kislow/kio/internal/ki"
+	"github.com/kislow/kio/pkg/projects"
 )
 
 // fakeWorker is one script installed under three agent names. It records its
@@ -23,6 +24,7 @@ import (
 const fakeWorker = `#!/bin/sh
 printf '%s\0' "$@" > "$ARGS_FILE"
 pwd > "$CWD_FILE"
+[ -n "$ENV_FILE" ] && env > "$ENV_FILE"
 [ -n "$RUNS_FILE" ] && printf 'x\n' >> "$RUNS_FILE"
 if [ -n "$FAIL_ON_RESUME" ]; then
   for a in "$@"; do case "$a" in --resume|resume) echo "No conversation found with session ID" >&2; exit 1 ;; esac; done
@@ -35,7 +37,12 @@ for a in "$@"; do
   prev="$a"
 done
 [ -n "$DIRTY_FILE" ] && printf 'x\n' > "$DIRTY_FILE"
+[ -n "$RENAME_BRANCH" ] && git branch -M "$RENAME_BRANCH"
+[ -n "$COMMIT_PLAIN" ] && git commit -q --allow-empty -m "$COMMIT_PLAIN"
+[ -n "$SET_EMAIL" ] && git config user.email "$SET_EMAIL"
+[ -n "$SET_NAME" ] && git config user.name "$SET_NAME"
 [ -n "$COMMIT_MSG" ] && git -c user.name=w -c user.email=w@example.com commit -q --allow-empty -m "$COMMIT_MSG"
+[ -n "$PUSH" ] && git push -q origin HEAD 2>"${PUSH_LOG:-/dev/null}"
 [ -n "$SLEEP" ] && sleep "$SLEEP"
 if [ -n "$EVENTS_FILE" ]; then
   while IFS= read -r l; do printf '%s\n' "$l"; sleep "${EVENT_GAP:-0}"; done < "$EVENTS_FILE"
@@ -156,7 +163,7 @@ func TestDelegateRunsClaudeInAWorktreeAndRecordsTheJob(t *testing.T) {
 		t.Errorf("task is not the wrapped brief: %q", task)
 	}
 	wantDir := filepath.Join(filepath.Dir(d.repo), filepath.Base(d.repo)+"-worktrees", r.ID)
-	if mustEval(t, r.Worktree) != mustEval(t, wantDir) || r.Branch != "chore/"+r.ID {
+	if mustEval(t, r.Worktree) != mustEval(t, wantDir) || r.Branch != "chore/fix-the-build-"+r.ID[strings.LastIndex(r.ID, "-")+1:] {
 		t.Fatalf("worktree %s on %s, want %s", r.Worktree, r.Branch, wantDir)
 	}
 	if cwd, err := filepath.EvalSymlinks(d.cwd(t)); err != nil || cwd != mustEval(t, wantDir) {
@@ -444,7 +451,7 @@ func TestDelegateAgyDefaultsToEdits(t *testing.T) {
 		t.Fatalf("args %v", args)
 	}
 	brief := args[len(want)]
-	for _, s := range []string{"t\n\nYou run in edits mode.", "git, go", "not the shell", "ends the job without a result", "FAILED: <reason>"} {
+	for _, s := range []string{"t\n\n" + ki.WorkerRole + " Run tests, linters and builds in the foreground", "git, go", "not the shell", "ends the job without a result", "FAILED: <reason>"} {
 		if !strings.Contains(brief, s) {
 			t.Errorf("brief misses %q: %q", s, brief)
 		}
@@ -1229,5 +1236,113 @@ func TestDoctorAcceptsTheWritingClass(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+func commitWho(t *testing.T, dir, ref string) string {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "git", "log", "-1", "--format=%an <%ae> / %cn <%ce>", ref)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git log %s: %v", ref, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func localConfig(t *testing.T, dir, key string) string {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "git", "config", "--local", "--get", key)
+	cmd.Dir = dir
+	out, _ := cmd.Output()
+	return strings.TrimSpace(string(out))
+}
+
+// A worker that commits without -c user.* is still the repo's identity.
+func TestDelegateWorkerCommitsAsTheRepoIdentity(t *testing.T) {
+	d := newDelegateEnv(t)
+	d.worker["RESULT"] = claudeDone
+	d.worker["COMMIT_PLAIN"] = "fix: a change"
+	if err := d.delegate("--task", "t", "--force", "--json"); err != nil {
+		t.Fatal(err)
+	}
+	r := d.result(t)
+	if got, want := commitWho(t, d.repo, r.Branch), "Alice <alice@work.example> / Alice <alice@work.example>"; got != want {
+		t.Fatalf("commit by %q, want %q", got, want)
+	}
+	if strings.Contains(r.Detail, identityRestored) {
+		t.Errorf("nothing changed, yet the detail says %q", r.Detail)
+	}
+}
+
+func TestDelegateRestoresGitIdentityTheWorkerChanged(t *testing.T) {
+	d := newDelegateEnv(t)
+	d.worker["RESULT"] = claudeDone
+	d.worker["SET_EMAIL"] = "me@example.com"
+	d.worker["SET_NAME"] = "me"
+	if err := d.delegate("--task", "t", "--force", "--json"); err != nil {
+		t.Fatal(err)
+	}
+	r := d.result(t)
+	if !strings.Contains(r.Detail, identityRestored) {
+		t.Errorf("detail %q does not say the identity was restored", r.Detail)
+	}
+	if email, name := localConfig(t, d.repo, "user.email"), localConfig(t, d.repo, "user.name"); email != "alice@work.example" || name != "Alice" {
+		t.Fatalf("config left as %q / %q", name, email)
+	}
+}
+
+func TestDelegateRestoreUnsetsWhatWasUnset(t *testing.T) {
+	d := newDelegateEnv(t)
+	gitIn(t, d.repo, "config", "--unset", "user.name")
+	d.worker["RESULT"] = claudeDone
+	d.worker["SET_NAME"] = "me"
+	if err := d.delegate("--task", "t", "--force", "--json"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(d.result(t).Detail, identityRestored) || localConfig(t, d.repo, "user.name") != "" {
+		t.Fatalf("user.name not unset again: %q", localConfig(t, d.repo, "user.name"))
+	}
+}
+
+// No commit is made under a missing or wrong author: the agent never runs.
+func TestDelegateFailsBeforeTheAgentRunsWithoutTheIdentity(t *testing.T) {
+	for name, tc := range map[string]struct {
+		set  func(*testing.T, string)
+		want string
+	}{
+		"unset email": {func(t *testing.T, dir string) { gitIn(t, dir, "config", "--unset", "user.email") }, "user.email is not set"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := newDelegateEnv(t)
+			tc.set(t, d.repo)
+			d.worker["RESULT"] = claudeDone
+			if err := d.delegate("--task", "t", "--force", "--json"); err != nil {
+				t.Fatal(err)
+			}
+			r := d.result(t)
+			if r.Status != ki.JobFailed || !strings.Contains(r.Detail, tc.want) {
+				t.Fatalf("result %s: %s", r.Status, r.Detail)
+			}
+			if _, err := os.Stat(d.argsFile); err == nil {
+				t.Error("the agent ran")
+			}
+			if jobs, err := ki.ReadLedger(filepath.Join(d.vars["KI_CONFIG_DIR"], "jobs", ki.LedgerFile)); err != nil || len(jobs) != 1 || jobs[0].Status != ki.JobFailed {
+				t.Errorf("ledger %+v, %v", jobs, err)
+			}
+		})
+	}
+}
+
+func TestResolveCommitIdentityRefusesAnotherIdentity(t *testing.T) {
+	d := newDelegateEnv(t)
+	gitIn(t, d.repo, "config", "user.email", "me@example.com")
+	p := &prepared{here: &here{root: d.repo}, session: ki.Session{Identity: &projects.Identity{Name: "acme", Email: "alice@work.example"}}}
+	if _, err := resolveCommitIdentity(t.Context(), p); err == nil || !strings.Contains(err.Error(), `belongs to identity "acme"`) {
+		t.Fatalf("err %v", err)
+	}
+	gitIn(t, d.repo, "config", "user.email", "Alice@Work.example")
+	if id, err := resolveCommitIdentity(t.Context(), p); err != nil || id.name != "Alice" || id.email != "Alice@Work.example" {
+		t.Fatalf("identity %+v, %v", id, err)
 	}
 }

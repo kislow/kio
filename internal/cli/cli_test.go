@@ -259,8 +259,8 @@ func TestBareCommandsPrintHelpOrRefuseArguments(t *testing.T) {
 			if err := e.app.Run(context.Background(), []string{name, flag}); err != nil {
 				t.Fatalf("%s %s: %v", name, flag, err)
 			}
-			if got := e.out.String(); !strings.HasPrefix(got, "ki "+name) || strings.Count(got, "\n") != 1 {
-				t.Fatalf("%s %s printed %q, want its usage line", name, flag, got)
+			if got := e.out.String(); !strings.HasPrefix(got, "  ki "+name) || strings.Contains(got, "ki doctor") != (name == "doctor") {
+				t.Fatalf("%s %s printed %q, want its usage entry alone", name, flag, got)
 			}
 		}
 		e := newEnv(t, "")
@@ -268,6 +268,14 @@ func TestBareCommandsPrintHelpOrRefuseArguments(t *testing.T) {
 		if !isUserError(err) || !strings.Contains(err.Error(), "takes no arguments") || e.out.Len() != 0 {
 			t.Fatalf("%s --force: want a refusal before running, got %v, output %q", name, err, e.out)
 		}
+	}
+}
+
+func TestUsageLineKeepsContinuationLines(t *testing.T) {
+	t.Parallel()
+	got := usageLine("update")
+	if !strings.Contains(got, "release binary:") || strings.Contains(got, "ki doctor") {
+		t.Fatalf("update entry: %q", got)
 	}
 }
 

@@ -35,7 +35,7 @@ a claim is in the local ledger (ki delegate ls). Without --task the issue's titl
 brief. --steal takes over a labelled issue. A crash leaves the label.
 
 The worktree's branch is <type>/<issue>-<slug> from the issue title's Conventional Commits prefix
-(chore without one), or chore/<job> without --issue. The worker opens its PR ready for review;
+(chore without one), or chore/<slug of the task>-<random> without --issue. The worker opens its PR ready for review;
 --draft makes it a draft.
 
 Claude Code, Codex and Cursor stream, so ki prints one progress line per tool call or message to
@@ -298,6 +298,15 @@ func (a *App) ensureAgyAllow(allow []string) error {
 
 func (a *App) jobsDir() string { return filepath.Join(a.confDir(), "jobs") }
 
+// refuseInWorker stops a delegate worker from starting jobs of its own: a nested
+// job doubles the cost and escapes the parent's timeout and ledger accounting.
+func (a *App) refuseInWorker() error {
+	if id := a.Getenv(ki.JobEnv); id != "" {
+		return fail("ki delegate: refused inside job %s: you are the worker, do the task yourself", id)
+	}
+	return nil
+}
+
 func (a *App) delegate(ctx context.Context, args []string) error {
 	if len(args) > 0 && args[0] == "log" {
 		return a.delegateLog(ctx, args[1:])
@@ -307,6 +316,9 @@ func (a *App) delegate(ctx context.Context, args []string) error {
 	}
 	if len(args) > 0 && args[0] == "watch" {
 		return a.delegateWatch(ctx, args[1:])
+	}
+	if len(args) > 0 && args[0] == "guard" {
+		return a.delegateGuard(args[1:])
 	}
 	if len(args) > 0 && args[0] == "health" {
 		return a.delegateHealth(args[1:])
@@ -327,6 +339,9 @@ func (a *App) delegate(ctx context.Context, args []string) error {
 // delegateTask runs `ki delegate --task|--issue ...`; queued is the queue
 // entry when `ki queue run` starts it, so it runs under the queued job's id.
 func (a *App) delegateTask(ctx context.Context, args []string, queued *ki.QueueEntry) error {
+	if err := a.refuseInWorker(); err != nil {
+		return err
+	}
 	da, err := parseDelegateArgs(args, orDefault(a.Getenv("KI_AGENT"), "claude"))
 	if err != nil {
 		return err
@@ -357,7 +372,7 @@ func (a *App) delegateTask(ctx context.Context, args []string, queued *ki.QueueE
 	if da.Here {
 		branch = git(ctx, p.here.root, "rev-parse", "--abbrev-ref", "HEAD")
 	} else if da.Issue == "" {
-		branch = freeBranch(ctx, p.here.root, ki.TaskBranch(id), id)
+		branch = freeBranch(ctx, p.here.root, ki.TaskBranch(ki.ResolveTitle(da.Title, "", da.Task), id), id)
 	}
 	// Claim before the worktree exists, so a refusal leaves nothing behind.
 	// An issue's branch is named from its title, which only the claim reads;

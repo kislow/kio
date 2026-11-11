@@ -326,3 +326,34 @@ func TestSkillGuardReadsTheHookOnStdin(t *testing.T) {
 		}
 	}
 }
+
+const vaultSkill = "---\nname: note\ndescription: Save a note.\nki-role: writing\nki-agents: [claude]\nki-tools:\n  - mcp__ki-vault__vault_write\n---\n\nSave $ARGUMENTS.\n"
+
+func TestSkillWithVaultWriteGetsTheWritingServerOnlyOnAClone(t *testing.T) {
+	for name, clone := range map[string]bool{"clone": true, "sync folder": false} {
+		t.Run(name, func(t *testing.T) {
+			d := newAskEnv(t, "identities: [work]\nmodels:\n  writing: {claude: sonnet}\n")
+			if clone {
+				gitIn(t, d.vars["KI_VAULT"], "init", "-q")
+			}
+			d.addSkill(t, "note", vaultSkill)
+			mcpCopy := filepath.Join(t.TempDir(), "mcp.json")
+			d.worker["RESULT"] = claudeAnswer("DONE: saved")
+			d.worker["COPY_MCP_CONFIG"] = mcpCopy
+			if err := d.skillRun("note", "x", "--json"); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(mcpCopy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var cfg ki.MCPConfig
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				t.Fatal(err)
+			}
+			if got := slices.Contains(cfg.MCPServers[ki.VaultServerName].Args, "--read-only"); got == clone {
+				t.Errorf("clone=%v, vault server args %v", clone, cfg.MCPServers[ki.VaultServerName].Args)
+			}
+		})
+	}
+}

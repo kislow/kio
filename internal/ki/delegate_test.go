@@ -37,6 +37,24 @@ func TestParseStatus(t *testing.T) {
 	}
 }
 
+func TestEveryBriefVariantStatesTheWorkerRules(t *testing.T) {
+	t.Parallel()
+	const role = "You are the worker ki started for this task: do it yourself in this worktree. Instructions about delegating with ki delegate are for the planner and do not apply to you."
+	const foreground = "Run tests, linters and builds in the foreground and wait for them; your turn ends the job, so never leave a command running in the background."
+	const bodyFile = "Write a pull request body to a file and pass it with gh pr create --body-file, so backticks and quotes reach GitHub unescaped."
+	briefs := map[string]string{
+		"plain":     WrapTask("fix the build", false),
+		"draft":     WrapTask("fix the build", true),
+		"sandboxed": WrapSandboxedTask("fix the build"),
+		"edits":     WrapEditsTask("fix the build", []string{"git"}, false),
+	}
+	for name, w := range briefs {
+		if !strings.Contains(w, "fix the build\n\n"+role+" "+foreground+" "+bodyFile+"\n\n") {
+			t.Errorf("%s: the worker paragraph does not follow the task: %q", name, w)
+		}
+	}
+}
+
 func TestWrapTaskKeepsTheContractLast(t *testing.T) {
 	w := WrapTask("  fix the build  \n", false)
 	if !strings.HasPrefix(w, "fix the build\n\n") || !strings.HasSuffix(w, "FAILED: <reason> when something broke that you could not fix") {
@@ -211,7 +229,7 @@ func TestWrapEditsTask(t *testing.T) {
 	t.Parallel()
 	w := WrapEditsTask("  fix the build \n", []string{"git", "go", "gh pr"}, false)
 	for _, want := range []string{
-		"fix the build\n\nYou run in edits mode.",
+		"fix the build\n\n" + workerRules + "\n\nYou run in edits mode.",
 		"Edit files with your file tools, not the shell.",
 		"The only shell commands you may run are: git, go, gh pr",
 		"Any other command is refused and ends the job without a result.",
@@ -220,7 +238,7 @@ func TestWrapEditsTask(t *testing.T) {
 			t.Errorf("%q missing from %q", want, w)
 		}
 	}
-	if !strings.HasSuffix(w, contract(false)) {
+	if !strings.HasSuffix(w, contractRules(false)) {
 		t.Fatalf("the status contract must stay last: %q", w)
 	}
 }
@@ -408,5 +426,18 @@ func TestPullURLCutsTheURLOutOfText(t *testing.T) {
 	}
 	if got := PullURL("nothing here"); got != "" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestEveryBriefForbidsGitConfigWrites(t *testing.T) {
+	for name, brief := range map[string]string{
+		"normal":    WrapTask("t", false),
+		"draft":     WrapTask("t", true),
+		"edits":     WrapEditsTask("t", []string{"go"}, false),
+		"sandboxed": WrapSandboxedTask("t"),
+	} {
+		if !strings.Contains(brief, gitConfigRule) {
+			t.Errorf("%s brief lacks the git config rule: %q", name, brief)
+		}
 	}
 }

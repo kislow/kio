@@ -209,7 +209,7 @@ func (a *App) skillRun(ctx context.Context, args []string) error {
 	}
 	brief := ki.SkillBrief(s, sa.args, ws)
 	da.setup = func(agent string) (workerMode, string, error) {
-		wm, err := a.skillAgentSetup(p, s, agent, dir)
+		wm, err := a.skillAgentSetup(ctx, p, s, agent, dir)
 		return wm, brief, err
 	}
 	role, try, err := a.skillProviders(ctx, &da, s, p.machine, id)
@@ -333,11 +333,11 @@ func (a *App) skillProviders(ctx context.Context, da *delegateArgs, s *ki.Skill,
 // skillAgentSetup writes the MCP config one agent reads and returns its
 // flags: Claude Code's allow-list, or the read-only setup of `ki ask` for
 // Codex and Cursor.
-func (a *App) skillAgentSetup(p *prepared, s *ki.Skill, agent, dir string) (workerMode, error) {
+func (a *App) skillAgentSetup(ctx context.Context, p *prepared, s *ki.Skill, agent, dir string) (workerMode, error) {
 	set := a.askSetup(p, skillSources(a, p))
 	if ki.AgentFamily(agent) == "claude" {
 		cfg := ki.AskMCPConfig(set, p.token, false)
-		if ki.SkillVaultWrites(s.Tools) && set.Vault.Command != "" {
+		if ki.SkillVaultWrites(s.Tools) && set.Vault.Command != "" && a.vaultIsClone(ctx) {
 			cfg.MCPServers[ki.VaultServerName] = ki.VaultServer(a.binary(), a.Getenv("KI_VAULT"))
 		}
 		if err := ki.WritePrivate(p.mcpPath, cfg); err != nil {

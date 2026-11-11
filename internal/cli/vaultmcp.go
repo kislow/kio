@@ -21,9 +21,10 @@ const maxNoteRead = 200_000
 // vaultMCP serves $KI_VAULT to the agent that started it, over stdio, until
 // the agent closes the pipe. Stdout is the protocol channel, so nothing else
 // in this process may write to it; progress goes to stderr. readOnly leaves
-// vault_write out, for agents that may only read (ki ask).
-func (a *App) vaultMCP(ctx context.Context, readOnly bool) error {
-	srv, err := a.vaultServer(ctx, readOnly)
+// vault_write out, for agents that may only read (ki ask); paths then limits
+// what they may read to those vault folders.
+func (a *App) vaultMCP(ctx context.Context, readOnly bool, paths []string) error {
+	srv, err := a.vaultServer(ctx, readOnly, paths)
 	if err != nil {
 		return err
 	}
@@ -41,29 +42,47 @@ func (a *App) vaultMCP(ctx context.Context, readOnly bool) error {
 type vaultTools struct {
 	app *App
 	dir string
-	now func() time.Time
-	log *slog.Logger
+	// reads is what vault_read, vault_list and vault_search may see.
+	reads vault.Reader
+	now   func() time.Time
+	log   *slog.Logger
 }
 
-// vaultServer builds the MCP server with the vault tools registered. The
-// vault must exist as a clone; the per-call checks (identity, origin, rebase)
-// run in vaultPreflight at write time, so a session that opens in a repo whose
-// identity may not reach the vault gets a clear refusal instead of a dead server.
-func (a *App) vaultServer(ctx context.Context, readOnly bool) (*mcp.Server, error) {
+// vaultServer builds the MCP server with the vault tools registered. A writing
+// server needs the vault as a clone; the per-call checks (identity, origin,
+// rebase) run in vaultPreflight at write time, so a session that opens in a
+// repo whose identity may not reach the vault gets a clear refusal instead of a
+// dead server. A read-only server needs no git, only a folder: a machine that
+// receives the vault through Obsidian Sync has nothing else.
+func (a *App) vaultServer(ctx context.Context, readOnly bool, paths []string) (*mcp.Server, error) {
 	dir := a.Getenv("KI_VAULT")
 	if dir == "" {
 		return nil, fail("KI_VAULT is not set; see docs/laptop-setup.md")
 	}
-	if git(ctx, dir, "rev-parse", "--is-inside-work-tree") != "true" {
+	if !readOnly && len(paths) > 0 {
+		return nil, fail("--path only limits a read-only server")
+	}
+	if readOnly {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			return nil, fail("KI_VAULT=%s is not a folder; see docs/laptop-setup.md", dir)
+		}
+	} else if git(ctx, dir, "rev-parse", "--is-inside-work-tree") != "true" {
 		return nil, fail("KI_VAULT=%s is not a git repo; clone the vault repo there (docs/laptop-setup.md)", dir)
 	}
-	t := &vaultTools{app: a, dir: dir, now: time.Now, log: slog.New(slog.NewTextHandler(a.Stderr, nil))}
+	reads, err := vault.NewReader(dir, paths)
+	if err != nil {
+		return nil, fail("%v", err)
+	}
+	t := &vaultTools{app: a, dir: dir, reads: reads, now: time.Now, log: slog.New(slog.NewTextHandler(a.Stderr, nil))}
 	instructions := "The user's Obsidian vault. Save documentation, decisions, runbooks, incident and meeting notes with vault_write; " +
 		"it places the note, adds frontmatter, updates the folder note and pushes. Never write vault files by hand. " +
 		"Notes are named in Title Case and names are unique across the vault."
 	if readOnly {
 		instructions = "The user's Obsidian vault, read-only: find notes with vault_search and vault_list, read them with vault_read. " +
 			"Notes are named in Title Case and names are unique across the vault."
+		if len(reads.Allow) > 0 {
+			instructions += " Only these folders are readable: " + strings.Join(reads.Allow, ", ") + "."
+		}
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "ki-vault", Version: a.Version}, &mcp.ServerOptions{Instructions: instructions})
 	if !readOnly {
@@ -189,7 +208,7 @@ func (t *vaultTools) read(_ context.Context, _ *mcp.CallToolRequest, in VaultRea
 	if stem == "" {
 		return nil, nil, errors.New("vault_read: title is required")
 	}
-	found, err := vault.Find(t.dir, stem)
+	found, err := t.reads.Find(stem)
 	if err != nil {
 		return nil, nil, fmt.Errorf("vault_read: %w", err)
 	}
@@ -217,7 +236,7 @@ func (t *vaultTools) read(_ context.Context, _ *mcp.CallToolRequest, in VaultRea
 
 func (t *vaultTools) list(_ context.Context, _ *mcp.CallToolRequest, in VaultListInput) (*mcp.CallToolResult, any, error) {
 	folder := strings.Trim(strings.TrimSpace(in.Folder), "/")
-	entries, err := vault.List(t.dir, folder)
+	entries, err := t.reads.List(folder)
 	if err != nil {
 		return nil, nil, fmt.Errorf("vault_list: %w", err)
 	}
@@ -240,7 +259,7 @@ func (t *vaultTools) search(_ context.Context, _ *mcp.CallToolRequest, in VaultS
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	hits, err := vault.Search(t.dir, in.Query, limit)
+	hits, err := t.reads.Search(in.Query, limit)
 	if err != nil {
 		return nil, nil, fmt.Errorf("vault_search: %w", err)
 	}

@@ -21,7 +21,7 @@ const credentialHelper = `!f() { echo username=x-access-token; echo "password=$G
 // done is published, and the worker's own claim of a push or PR is never trusted:
 // the status is what ki finds on the branch and on GitHub afterwards.
 type publishJob struct {
-	dir, branch, last string
+	dir, last string
 	// issue is the issue the job works on, as owner/repo#N, "" for a plain task.
 	issue string
 	draft bool
@@ -45,6 +45,7 @@ func (a *App) publish(ctx context.Context, p *prepared, r *ki.Result, j publishJ
 }
 
 // publishStatus is the status publishing leaves, "" to keep the worker's own.
+// It publishes the branch the worktree is on, which a worker may have renamed.
 func (a *App) publishStatus(ctx context.Context, p *prepared, j publishJob, claimed bool) (status, detail string) {
 	env := ki.MergeEnv(a.Environ(), map[string]string{"GH_TOKEN": j.token, "GIT_TERMINAL_PROMPT": "0"})
 	run := func(args ...string) (string, error) { return publishGit(ctx, j.dir, env, j.token != "", args...) }
@@ -65,9 +66,6 @@ func (a *App) publishStatus(ctx context.Context, p *prepared, j publishJob, clai
 	if err != nil {
 		return ki.JobFailed, "cannot publish from a detached HEAD in " + j.dir
 	}
-	if current != j.branch {
-		return ki.JobFailed, fmt.Sprintf("the worktree is on %s, not the job's branch %s", current, j.branch)
-	}
 	base, _ := run("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
 	base = strings.TrimPrefix(base, "origin/")
 	if base != "" && current == base {
@@ -77,7 +75,7 @@ func (a *App) publishStatus(ctx context.Context, p *prepared, j publishJob, clai
 	if err != nil {
 		return ki.JobFailed, "reading origin: " + err.Error()
 	}
-	ahead, err := commitsAhead(run, pushURL, j.branch, len(work.Commits))
+	ahead, err := commitsAhead(run, pushURL, current, len(work.Commits))
 	if err != nil {
 		return ki.JobFailed, err.Error()
 	}
@@ -93,12 +91,15 @@ func (a *App) publishStatus(ctx context.Context, p *prepared, j publishJob, clai
 	if err != nil {
 		return ki.JobFailed, "not pushed, origin is not a GitHub repository: " + err.Error()
 	}
-	if _, err := run("push", "origin", "HEAD:refs/heads/"+j.branch); err != nil {
-		return ki.JobFailed, "git push " + j.branch + ": " + err.Error()
+	if match := leakInWork(ctx, p.here.root, j.dir, current, pullTitle(work.Commits, current), j.body()); match != "" {
+		return ki.JobFailed, "leak guard: " + match
 	}
-	url, err := a.pullFor(ctx, j, owner+"/"+repo, base, work.Commits)
+	if _, err := run("push", "origin", "HEAD:refs/heads/"+current); err != nil {
+		return ki.JobFailed, "git push " + current + ": " + err.Error()
+	}
+	url, err := a.pullFor(ctx, j, owner+"/"+repo, base, current, work.Commits)
 	if err != nil {
-		return ki.JobFailed, "pushed " + j.branch + " but " + err.Error()
+		return ki.JobFailed, "pushed " + current + " but " + err.Error()
 	}
 	return ki.JobPR, url
 }
@@ -129,9 +130,9 @@ func commitsAhead(run func(args ...string) (string, error), pushURL, branch stri
 // pullFor is the open pull request of the branch, opened with the first commit's
 // subject and the worker's final message when there is none yet; an existing
 // one is left as it is.
-func (a *App) pullFor(ctx context.Context, j publishJob, repo, base string, commits []string) (string, error) {
+func (a *App) pullFor(ctx context.Context, j publishJob, repo, base, branch string, commits []string) (string, error) {
 	gh := a.ghRunner()
-	raw, err := gh(ctx, j.token, nil, "pr", "list", "-R", repo, "--head", j.branch, "--state", "open", "--json", "url", "--limit", "1")
+	raw, err := gh(ctx, j.token, nil, "pr", "list", "-R", repo, "--head", branch, "--state", "open", "--json", "url", "--limit", "1")
 	if err != nil {
 		return "", fmt.Errorf("could not look up its pull request: %w", err)
 	}
@@ -144,7 +145,7 @@ func (a *App) pullFor(ctx context.Context, j publishJob, repo, base string, comm
 	if len(open) > 0 && open[0].URL != "" {
 		return open[0].URL, nil
 	}
-	args := []string{"pr", "create", "-R", repo, "--head", j.branch, "--title", pullTitle(commits, j.branch), "--body", j.body()}
+	args := []string{"pr", "create", "-R", repo, "--head", branch, "--title", pullTitle(commits, branch), "--body", j.body()}
 	if base != "" {
 		args = append(args, "--base", base)
 	}

@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/kislow/kio/internal/ki"
+	"github.com/kislow/kio/internal/vault"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -18,11 +20,21 @@ func vaultSession(t *testing.T, v *vaultEnv) *mcp.ClientSession {
 	return vaultSessionMode(t, v, false)
 }
 
+func vaultSessionPaths(t *testing.T, v *vaultEnv, paths ...string) *mcp.ClientSession {
+	t.Helper()
+	return connectVault(t, v, true, paths)
+}
+
 // vaultSessionMode is vaultSession, read-only or not.
 func vaultSessionMode(t *testing.T, v *vaultEnv, readOnly bool) *mcp.ClientSession {
 	t.Helper()
+	return connectVault(t, v, readOnly, nil)
+}
+
+func connectVault(t *testing.T, v *vaultEnv, readOnly bool, paths []string) *mcp.ClientSession {
+	t.Helper()
 	ctx := context.Background()
-	srv, err := v.app.vaultServer(ctx, readOnly)
+	srv, err := v.app.vaultServer(ctx, readOnly, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,8 +246,13 @@ func TestVaultMCPNeedsAVault(t *testing.T) {
 	if err := e.app.Run(context.Background(), []string{"vault", "mcp"}); !isUserError(err) || !strings.Contains(err.Error(), "not a git repo") {
 		t.Fatalf("not a clone: %v", err)
 	}
-	if err := e.app.Run(context.Background(), []string{"vault", "mcp", "extra"}); !isUserError(err) {
-		t.Fatalf("usage: %v", err)
+	for _, args := range [][]string{{"extra"}, {"--path"}, {"--read-only", "--path"}, {"--read-only", "extra"}} {
+		if err := e.app.Run(context.Background(), append([]string{"vault", "mcp"}, args...)); !isUserError(err) || !strings.Contains(err.Error(), "usage:") {
+			t.Fatalf("usage for %v: %v", args, err)
+		}
+	}
+	if err := e.app.Run(context.Background(), []string{"vault", "mcp", "--path", "projects"}); !isUserError(err) || !strings.Contains(err.Error(), "--path only limits a read-only server") {
+		t.Fatalf("--path on the write server: %v", err)
 	}
 	if err := e.app.Run(context.Background(), []string{"vault", "nope"}); !isUserError(err) {
 		t.Fatalf("unknown subcommand: %v", err)
@@ -312,5 +329,204 @@ func TestSetupCodexAndCursorCarryTheVaultServer(t *testing.T) {
 	srv, ok := mcpCfg.MCPServers[ki.VaultServerName]
 	if !ok || srv.Type != "" || srv.Command != "/opt/ki" {
 		t.Fatalf("cursor config:\n%s", raw)
+	}
+}
+
+func TestVaultMCPReadOnlyNeedsNoGit(t *testing.T) {
+	e := newEnv(t, "")
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "projects", "acme", "Backend.md"), "Go and Postgres.\n")
+	e.vars["KI_VAULT"] = dir
+	v := &vaultEnv{env: e}
+
+	cs := vaultSessionMode(t, v, true)
+	if out, isErr := call(t, cs, "vault_read", map[string]any{"title": "Backend"}); isErr || !strings.Contains(out, "Go and Postgres.") {
+		t.Fatalf("read from a plain folder: %v %s", isErr, out)
+	}
+
+	if _, err := v.app.vaultServer(context.Background(), false, nil); !isUserError(err) || !strings.Contains(err.Error(), "not a git repo") {
+		t.Fatalf("the write server must still need git: %v", err)
+	}
+	if err := e.app.Run(context.Background(), []string{"vault", "push"}); !isUserError(err) {
+		t.Fatalf("vault push on a plain folder: %v", err)
+	}
+
+	for name, path := range map[string]string{"missing": filepath.Join(dir, "nope"), "a file": filepath.Join(dir, "projects", "acme", "Backend.md")} {
+		e.vars["KI_VAULT"] = path
+		if _, err := v.app.vaultServer(context.Background(), true, nil); !isUserError(err) || !strings.Contains(err.Error(), "is not a folder") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func seedReadPaths(t *testing.T) *vaultEnv {
+	t.Helper()
+	e := newEnv(t, "")
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "projects", "acme", "Backend.md"), "Go and Postgres.\n")
+	write(t, filepath.Join(dir, "projects", "other", "Secret Plan.md"), "Postgres is out of scope here.\n")
+	write(t, filepath.Join(dir, "engineering", "Style.md"), "Postgres naming.\n")
+	write(t, filepath.Join(dir, "daily", "2026-11-11.md"), "Postgres standup.\n")
+	write(t, filepath.Join(dir, "Home.md"), "Postgres home.\n")
+	e.vars["KI_VAULT"] = dir
+	return &vaultEnv{env: e}
+}
+
+func TestVaultMCPReadPathsConfineEveryReadTool(t *testing.T) {
+	v := seedReadPaths(t)
+	cs := vaultSessionPaths(t, v, "projects/acme", "engineering/")
+
+	if out, isErr := call(t, cs, "vault_search", map[string]any{"query": "postgres"}); isErr ||
+		!strings.Contains(out, "projects/acme/Backend.md") || !strings.Contains(out, "engineering/Style.md") ||
+		strings.Contains(out, "other") || strings.Contains(out, "daily") || strings.Contains(out, "Home") {
+		t.Fatalf("search leaves the allowed folders: %v\n%s", isErr, out)
+	}
+	if out, isErr := call(t, cs, "vault_read", map[string]any{"title": "Style"}); isErr || !strings.Contains(out, "Postgres naming.") {
+		t.Fatalf("read inside: %v %s", isErr, out)
+	}
+	for _, title := range []string{"Secret Plan", "2026-11-11", "Home"} {
+		if out, isErr := call(t, cs, "vault_read", map[string]any{"title": title}); !isErr || !strings.Contains(out, "no note named") {
+			t.Errorf("read of %q outside the paths: %v %s", title, isErr, out)
+		}
+	}
+
+	if out, isErr := call(t, cs, "vault_list", map[string]any{}); isErr || out != "engineering/\nprojects/\n" {
+		t.Fatalf("root lists only the way to the folders: %v %q", isErr, out)
+	}
+	if out, isErr := call(t, cs, "vault_list", map[string]any{"folder": "projects"}); isErr || out != "acme/\n" {
+		t.Fatalf("projects lists only acme: %v %q", isErr, out)
+	}
+	if out, isErr := call(t, cs, "vault_list", map[string]any{"folder": "projects/acme"}); isErr || out != "Backend\n" {
+		t.Fatalf("allowed folder: %v %q", isErr, out)
+	}
+	for _, folder := range []string{"projects/other", "daily", "projects/acme/../other", "..", "/etc"} {
+		if out, isErr := call(t, cs, "vault_list", map[string]any{"folder": folder}); !isErr || !strings.Contains(out, "vault_list: refused") {
+			t.Errorf("list %q: %v %q", folder, isErr, out)
+		}
+	}
+}
+
+func TestVaultMCPWithoutReadPathsReadsTheWholeVault(t *testing.T) {
+	v := seedReadPaths(t)
+	for name, cs := range map[string]*mcp.ClientSession{"no paths": vaultSessionPaths(t, v), "empty path list": vaultSessionPaths(t, v, []string{}...)} {
+		out, isErr := call(t, cs, "vault_search", map[string]any{"query": "postgres"})
+		if isErr || !strings.Contains(out, "daily/2026-11-11.md") || !strings.Contains(out, "projects/other/Secret Plan.md") {
+			t.Errorf("%s: %v\n%s", name, isErr, out)
+		}
+	}
+}
+
+func TestVaultMCPReadPathsRefuseSymlinkEscapes(t *testing.T) {
+	v := seedReadPaths(t)
+	dir := v.vars["KI_VAULT"]
+	outside := t.TempDir()
+	write(t, filepath.Join(outside, "Loot.md"), "Postgres loot.\n")
+	if err := os.Symlink(outside, filepath.Join(dir, "projects", "acme", "link")); err != nil {
+		t.Skip("no symlinks here:", err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "projects", "other"), filepath.Join(dir, "projects", "acme", "sibling")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "engineering", "gone")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(dir, filepath.Join(dir, "projects", "acme", "up")); err != nil {
+		t.Fatal(err)
+	}
+	cs := vaultSessionPaths(t, v, "projects/acme", "engineering")
+
+	for _, folder := range []string{"projects/acme/link", "projects/acme/sibling", "projects/acme/up", "engineering/gone"} {
+		if out, isErr := call(t, cs, "vault_list", map[string]any{"folder": folder}); !isErr || !strings.Contains(out, "resolves outside") {
+			t.Errorf("list %q through a symlink: %v %q", folder, isErr, out)
+		}
+	}
+	if out, _ := call(t, cs, "vault_search", map[string]any{"query": "loot"}); strings.Contains(out, "Loot") {
+		t.Errorf("search followed a symlink: %s", out)
+	}
+	if out, isErr := call(t, cs, "vault_read", map[string]any{"title": "Loot"}); !isErr {
+		t.Errorf("read followed a symlink: %s", out)
+	}
+
+	// A listed folder that is itself a link out of the vault is refused too.
+	if err := os.Symlink(outside, filepath.Join(dir, "reference")); err != nil {
+		t.Fatal(err)
+	}
+	escaping := vaultSessionPaths(t, v, "reference")
+	if out, isErr := call(t, escaping, "vault_search", map[string]any{"query": "loot"}); !isErr || !strings.Contains(out, "resolves outside") {
+		t.Errorf("search through a listed symlink: %v %q", isErr, out)
+	}
+}
+
+func TestVaultMCPRefusesABadReadPath(t *testing.T) {
+	v := seedReadPaths(t)
+	for _, bad := range []string{"/etc", "../x", "projects/../daily", ".obsidian", ""} {
+		if _, err := v.app.vaultServer(context.Background(), true, []string{bad}); !isUserError(err) || !strings.Contains(err.Error(), "not a folder inside the vault") {
+			t.Errorf("path %q: %v", bad, err)
+		}
+	}
+}
+
+func TestVaultMCPNamesTheReadableFolders(t *testing.T) {
+	v := seedReadPaths(t)
+	srv, err := v.app.vaultServer(context.Background(), true, []string{"projects/acme", "projects/acme/sub", "projects/acme"})
+	if err != nil || srv == nil {
+		t.Fatal(err)
+	}
+	reads, err := vault.NewReader(v.vars["KI_VAULT"], []string{"projects/acme", "projects/acme/sub", "projects/acme"})
+	if err != nil || !slices.Equal(reads.Allow, []string{"projects/acme"}) {
+		t.Fatalf("nested and repeated folders not collapsed: %v %v", reads.Allow, err)
+	}
+}
+
+func TestSessionVaultServerIsReadOnlyOnAFolderThatIsNotAClone(t *testing.T) {
+	e := newEnv(t, "https://github.com/work/app")
+	e.app.Executable = func() (string, error) { return "/opt/ki", nil }
+	write(t, filepath.Join(e.harness, "deploy", "config", "projects.yaml"), "identities:\n  work: {github_user: alice-work, email: alice@work.example, credential: work, vault: false, ingest: true, vault_read: [projects/acme]}\nprojects:\n  - {name: app, repo: https://github.com/work/app, identity: work, brains: [app]}\n")
+	clone := t.TempDir()
+	gitIn(t, clone, "init", "-q")
+	for name, c := range map[string]struct {
+		dir  string
+		want []string
+	}{
+		"clone":  {clone, []string{"vault", "mcp"}},
+		"folder": {t.TempDir(), []string{"vault", "mcp", "--read-only", "--path", "projects/acme"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e.vars["KI_VAULT"] = c.dir
+			p, err := e.app.prepare(context.Background(), ki.RunArgs{Agent: "claude", Force: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(p.mcpPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var cfg ki.MCPConfig
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				t.Fatal(err)
+			}
+			if v := cfg.MCPServers[ki.VaultServerName]; !slices.Equal(v.Args, c.want) || v.Env["KI_VAULT"] != c.dir {
+				t.Errorf("vault server %+v, want args %v", v, c.want)
+			}
+		})
+	}
+}
+
+func TestStatusReportsWhetherTheVaultIsWritable(t *testing.T) {
+	e := newEnv(t, "https://github.com/work/app")
+	clone := t.TempDir()
+	gitIn(t, clone, "init", "-q")
+	for dir, want := range map[string]bool{"": false, t.TempDir(): false, clone: true} {
+		e.vars["KI_VAULT"] = dir
+		e.out.Reset()
+		if err := e.app.Run(context.Background(), []string{"status", "--json"}); err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			Writable bool `json:"vault_writable"`
+		}
+		if err := json.Unmarshal(e.out.Bytes(), &got); err != nil || got.Writable != want {
+			t.Errorf("KI_VAULT=%q: vault_writable %v (%v), want %v", dir, got.Writable, err, want)
+		}
 	}
 }

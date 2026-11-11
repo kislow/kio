@@ -81,7 +81,7 @@ The agent cannot write, and that is enforced by the agent's own permission mecha
 
 GitHub is read through `gh` on Claude Code only, with the identity's gh login in `GH_TOKEN`. Codex's read-only sandbox and Cursor's sandbox have no network, which is what keeps `gh` from writing there, so they answer from the knowledge base and the vault.
 
-The vault is served by `ki vault mcp --read-only`: the same server sessions get, without `vault_write`. It needs `KI_VAULT`.
+The vault is served by `ki vault mcp --read-only`: the same server sessions get, without `vault_write`. It needs `KI_VAULT` set to a folder, which need not be a git clone. When the identity has `vault_read` in `projects.yaml`, ki adds one `--path` per folder and the server reads only those ([vault](vault.md#limit-what-an-identity-reads)).
 
 Checked by hand on 2026-11-07: asked to create a file in the scratch folder, one in `/tmp` and to run `gh api rate_limit`, Cursor in ask mode refused all three; Claude Code in `dontAsk` refused a `touch` and a file write.
 

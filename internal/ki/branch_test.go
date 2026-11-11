@@ -29,8 +29,19 @@ func TestIssueBranch(t *testing.T) {
 
 func TestTaskBranch(t *testing.T) {
 	t.Parallel()
-	if got := TaskBranch("j-20261028-101500-ab12"); got != "chore/j-20261028-101500-ab12" {
-		t.Fatalf("got %q", got)
+	const id = "j-20261028-101500-ab12cd34"
+	for title, want := range map[string]string{
+		"Fix the build cache key": "chore/fix-the-build-cache-key-ab12cd34",
+		"":                        "chore/task-ab12cd34",
+		"!!!":                     "chore/task-ab12cd34",
+		"Repair the cache key of the worker image builder": "chore/repair-the-cache-key-of-the-worker-ab12cd34",
+	} {
+		if got := TaskBranch(title, id); got != want {
+			t.Errorf("TaskBranch(%q) = %q, want %q", title, got, want)
+		}
+		if m := LeakMatch(TaskBranch(title, id)); m != "" {
+			t.Errorf("TaskBranch(%q) matches the leak guard: %q", title, m)
+		}
 	}
 }
 

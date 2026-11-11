@@ -258,3 +258,29 @@ func TestRoleStates(t *testing.T) {
 		t.Error("a machine without roles has none")
 	}
 }
+
+func TestReadOnlyVaultServerCarriesItsReadPaths(t *testing.T) {
+	t.Parallel()
+	all := ReadOnlyVaultServer("/bin/ki", "/vault")
+	if !slices.Equal(all.Args, []string{"vault", "mcp", "--read-only"}) {
+		t.Fatalf("whole vault: %v", all.Args)
+	}
+	set := askTestSetup(SourceKB, SourceVault)
+	set.VaultPaths = []string{"projects/acme", "engineering"}
+	set.Vault = ReadOnlyVaultServer("/bin/ki", "/vault", set.VaultPaths...)
+	want := []string{"vault", "mcp", "--read-only", "--path", "projects/acme", "--path", "engineering"}
+	if !slices.Equal(set.Vault.Args, want) {
+		t.Fatalf("args: %v", set.Vault.Args)
+	}
+	if v := AskMCPConfig(set, "tok", false).MCPServers[VaultServerName]; !slices.Equal(v.Args, want) {
+		t.Errorf("Claude Code config: %v", v.Args)
+	}
+	joined := strings.Join(AskArgs("codex", set), " ")
+	if !strings.Contains(joined, `mcp_servers.ki-vault.args=["vault", "mcp", "--read-only", "--path", "projects/acme", "--path", "engineering"]`) {
+		t.Errorf("Codex args: %s", joined)
+	}
+	set.Vault, set.CodexVault = MCPServer{}, true
+	if joined := strings.Join(AskArgs("codex", set), " "); !strings.Contains(joined, `mcp_servers.ki-vault.args=["vault", "mcp", "--read-only", "--path", "projects/acme", "--path", "engineering"]`) {
+		t.Errorf("Codex's own vault server not limited: %s", joined)
+	}
+}

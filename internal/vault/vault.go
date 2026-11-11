@@ -347,48 +347,10 @@ type Note struct {
 	Stem string
 }
 
-// Find returns every note whose name is stem, anywhere in the vault. Names are
-// unique by convention, so more than one result is itself a finding.
-func Find(root, stem string) ([]Note, error) {
-	var found []Note
-	err := walk(root, func(rel string, d fs.DirEntry) {
-		if !d.IsDir() && strings.TrimSuffix(d.Name(), ".md") == stem && strings.HasSuffix(d.Name(), ".md") {
-			found = append(found, Note{Rel: rel, Stem: stem})
-		}
-	})
-	return found, err
-}
-
 // Entry is one line of vault_list.
 type Entry struct {
 	Name  string
 	IsDir bool
-}
-
-// List returns the folders and notes directly under folder ("" for the root).
-func List(root, folder string) ([]Entry, error) {
-	if folder != "" && !SafeRel(folder) {
-		return nil, refuse("folder %q is outside the vault or not for tools", folder)
-	}
-	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(folder)))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, refuse("no folder %q in the vault", folder)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("listing %s: %w", folder, err)
-	}
-	out := make([]Entry, 0, len(entries))
-	for _, e := range entries {
-		if slices.Contains(forbidden, e.Name()) || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		if e.IsDir() {
-			out = append(out, Entry{Name: e.Name(), IsDir: true})
-		} else if strings.HasSuffix(e.Name(), ".md") {
-			out = append(out, Entry{Name: strings.TrimSuffix(e.Name(), ".md")})
-		}
-	}
-	return out, nil
 }
 
 // Hit is one vault_search result.
@@ -398,15 +360,161 @@ type Hit struct {
 	Text string
 }
 
+// Find returns every note whose name is stem, anywhere in the vault. Names are
+// unique by convention, so more than one result is itself a finding.
+func Find(root, stem string) ([]Note, error) { return Reader{Root: root}.Find(stem) }
+
+// List returns the folders and notes directly under folder ("" for the root).
+func List(root, folder string) ([]Entry, error) { return Reader{Root: root}.List(folder) }
+
 // Search returns the notes whose name or text contains query, case-insensitive,
 // with the first matching line, at most limit of them.
 func Search(root, query string, limit int) ([]Hit, error) {
+	return Reader{Root: root}.Search(query, limit)
+}
+
+// Reader reads a vault. Allow limits it to vault-relative folders; empty means
+// the whole vault. Use NewReader for a list that came from outside.
+type Reader struct {
+	Root  string
+	Allow []string
+}
+
+// NewReader returns a Reader confined to the given vault-relative folders,
+// after refusing any that is not a plain relative path.
+func NewReader(root string, allow []string) (Reader, error) {
+	var folders []string
+	for _, a := range allow {
+		f := strings.TrimSuffix(strings.TrimSpace(a), "/")
+		if !SafeRel(f) {
+			return Reader{}, refuse("read path %q is not a folder inside the vault", a)
+		}
+		folders = append(folders, f)
+	}
+	// A folder inside another listed one adds nothing and would list its notes twice.
+	var top []string
+	for _, f := range folders {
+		if !slices.ContainsFunc(folders, func(o string) bool { return o != f && within(f, o) }) && !slices.Contains(top, f) {
+			top = append(top, f)
+		}
+	}
+	return Reader{Root: root, Allow: top}, nil
+}
+
+// within reports whether rel is folder or lies under it.
+func within(rel, folder string) bool { return rel == folder || strings.HasPrefix(rel, folder+"/") }
+
+// permitted reports whether rel is a listed folder or under one; true without a list.
+func (r Reader) permitted(rel string) bool {
+	return len(r.Allow) == 0 || slices.ContainsFunc(r.Allow, func(f string) bool { return within(rel, f) })
+}
+
+// onTheWay reports whether a listed folder lies under rel, so rel is worth
+// showing in a listing even though its notes are not readable.
+func (r Reader) onTheWay(rel string) bool {
+	return rel == "" || slices.ContainsFunc(r.Allow, func(f string) bool { return strings.HasPrefix(f, rel+"/") })
+}
+
+// starts are the folders a walk begins in.
+func (r Reader) starts() []string {
+	if len(r.Allow) == 0 {
+		return []string{""}
+	}
+	return r.Allow
+}
+
+// confined refuses a folder whose real location, after symlinks, is outside
+// the vault or outside every listed folder. Nothing is checked without a list,
+// which keeps the whole-vault behaviour as it was. A folder that does not exist
+// passes: the caller reports it as missing.
+func (r Reader) confined(rel string) error {
+	if len(r.Allow) == 0 {
+		return nil
+	}
+	real, err := filepath.EvalSymlinks(filepath.Join(r.Root, filepath.FromSlash(rel)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("resolving %s: %w", rel, err)
+	}
+	root, err := filepath.EvalSymlinks(r.Root)
+	if err != nil {
+		return fmt.Errorf("resolving the vault: %w", err)
+	}
+	back, err := filepath.Rel(root, real)
+	if err != nil {
+		return refuse("%q resolves outside the vault", rel)
+	}
+	if back = filepath.ToSlash(back); back == "." {
+		back = ""
+	}
+	// A folder above the listed ones only shows the way down, so it may not be a link at all.
+	stays := back == rel
+	if r.permitted(rel) {
+		stays = r.permitted(back)
+	}
+	if back == ".." || strings.HasPrefix(back, "../") || !stays {
+		return refuse("%q resolves outside the folders this session may read", rel)
+	}
+	return nil
+}
+
+// Find is the package-level Find limited to the readable folders.
+func (r Reader) Find(stem string) ([]Note, error) {
+	var found []Note
+	err := r.walk(func(rel string, d fs.DirEntry) {
+		if !d.IsDir() && strings.TrimSuffix(d.Name(), ".md") == stem && strings.HasSuffix(d.Name(), ".md") {
+			found = append(found, Note{Rel: rel, Stem: stem})
+		}
+	})
+	return found, err
+}
+
+// List is the package-level List limited to the readable folders. Above them it
+// shows only the way down to them.
+func (r Reader) List(folder string) ([]Entry, error) {
+	if folder != "" && !SafeRel(folder) {
+		return nil, refuse("folder %q is outside the vault or not for tools", folder)
+	}
+	if !r.permitted(folder) && !r.onTheWay(folder) {
+		return nil, refuse("folder %q is outside the folders this session may read", folder)
+	}
+	if err := r.confined(folder); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(filepath.Join(r.Root, filepath.FromSlash(folder)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, refuse("no folder %q in the vault", folder)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("listing %s: %w", folder, err)
+	}
+	listed := r.permitted(folder)
+	out := make([]Entry, 0, len(entries))
+	for _, e := range entries {
+		if slices.Contains(forbidden, e.Name()) || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		child := path.Join(folder, e.Name())
+		switch {
+		case e.IsDir() && (listed || r.permitted(child) || r.onTheWay(child)):
+			out = append(out, Entry{Name: e.Name(), IsDir: true})
+		case listed && strings.HasSuffix(e.Name(), ".md"):
+			out = append(out, Entry{Name: strings.TrimSuffix(e.Name(), ".md")})
+		}
+	}
+	return out, nil
+}
+
+// Search is the package-level Search limited to the readable folders.
+func (r Reader) Search(query string, limit int) ([]Hit, error) {
 	q := strings.ToLower(strings.TrimSpace(query))
 	if q == "" {
 		return nil, refuse("query is required")
 	}
 	var hits []Hit
-	err := walk(root, func(rel string, d fs.DirEntry) {
+	err := r.walk(func(rel string, d fs.DirEntry) {
 		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") || len(hits) >= limit {
 			return
 		}
@@ -414,7 +522,7 @@ func Search(root, query string, limit int) ([]Hit, error) {
 			hits = append(hits, Hit{Rel: rel, Line: 0, Text: "(name)"})
 			return
 		}
-		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))) // #nosec G304 -- walked from the vault root
+		data, err := os.ReadFile(filepath.Join(r.Root, filepath.FromSlash(rel))) // #nosec G304 -- walked from the vault root
 		if err != nil {
 			return
 		}
@@ -429,11 +537,26 @@ func Search(root, query string, limit int) ([]Hit, error) {
 	return hits, err
 }
 
-// walk visits every entry under root except the forbidden folders, never
-// following symlinks.
-func walk(root string, visit func(rel string, d fs.DirEntry)) error {
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+// walk visits every entry under the readable folders except the forbidden
+// ones, never following symlinks. A listed folder that does not exist is skipped.
+func (r Reader) walk(visit func(rel string, d fs.DirEntry)) error {
+	for _, start := range r.starts() {
+		if err := r.confined(start); err != nil {
+			return err
+		}
+		if err := walkFrom(r.Root, start, visit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func walkFrom(root, start string, visit func(rel string, d fs.DirEntry)) error {
+	err := filepath.WalkDir(filepath.Join(root, filepath.FromSlash(start)), func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
+			if p == filepath.Join(root, filepath.FromSlash(start)) && errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
 			return err
 		}
 		rel, rerr := filepath.Rel(root, p)

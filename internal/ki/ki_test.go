@@ -218,22 +218,10 @@ func TestPruneRunFiles(t *testing.T) {
 	}
 }
 
-func TestVaultServerIsAddedOnlyWithAVault(t *testing.T) {
-	cfg := AddVaultServer(NewMCPConfig("http://kb:8787", "secret", []string{"a"}), "/usr/local/bin/ki", "")
-	if _, ok := cfg.MCPServers[VaultServerName]; ok {
-		t.Fatal("no vault, no server")
-	}
-	cfg = AddVaultServer(cfg, "", "/vault")
-	if _, ok := cfg.MCPServers[VaultServerName]; ok {
-		t.Fatal("no binary, no server")
-	}
-	cfg = AddVaultServer(cfg, "/usr/local/bin/ki", "/vault")
-	v := cfg.MCPServers[VaultServerName]
+func TestVaultServerIsAStdioEntryForTheKiBinary(t *testing.T) {
+	v := VaultServer("/usr/local/bin/ki", "/vault")
 	if v.Type != "stdio" || v.Command != "/usr/local/bin/ki" || len(v.Args) != 2 || v.Args[1] != "mcp" || v.Env["KI_VAULT"] != "/vault" || v.URL != "" {
 		t.Fatalf("vault server: %+v", v)
-	}
-	if kb := cfg.MCPServers[MCPServerName]; kb.URL == "" || kb.Command != "" {
-		t.Fatalf("kb server changed: %+v", kb)
 	}
 }
 

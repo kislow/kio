@@ -80,10 +80,7 @@ func (a *App) setupCodex(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	vault := ki.MCPServer{}
-	if dir := a.Getenv("KI_VAULT"); dir != "" && a.binary() != "" {
-		vault = ki.VaultServer(a.binary(), dir)
-	}
+	vault := a.sessionVaultServer(ctx, nil)
 	servers := codexServers(url, vault)
 	wroteConfig := false
 	if block := ki.CodexMCPBlock(url, vault); block != "" || ki.HasBlock(current, ki.TOMLComment()) {
@@ -177,7 +174,7 @@ func (a *App) cursor(ctx context.Context) error {
 	if url != "" {
 		cfg = ki.NewMCPConfig(url, token, h.session.Brains)
 	}
-	cfg = ki.AddVaultServer(cfg, a.binary(), a.Getenv("KI_VAULT"))
+	cfg = a.addVaultServer(ctx, cfg, identityReadPaths(h.session))
 	for name, srv := range cfg.MCPServers {
 		srv.Type = "" // Cursor infers the transport from url or command
 		cfg.MCPServers[name] = srv

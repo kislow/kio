@@ -72,6 +72,19 @@ func TestVaultFolders(t *testing.T) {
 	}
 }
 
+func TestVaultRead(t *testing.T) {
+	cfg, err := Load(filepath.Join(fixtures, "valid", "vault-read.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Identities["work"].VaultRead; !slices.Equal(got, []string{"projects/acme", "engineering", "reference"}) {
+		t.Fatalf("work vault_read: %v", got)
+	}
+	if got := cfg.Identities["other"].VaultRead; got != nil {
+		t.Fatalf("an identity without vault_read must read the whole vault, got %v", got)
+	}
+}
+
 func TestParsedWorkspaces(t *testing.T) {
 	cfg, err := Load(filepath.Join(fixtures, "valid", "workspaces.yaml"))
 	if err != nil {

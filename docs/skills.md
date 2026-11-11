@@ -109,7 +109,7 @@ flowchart TB
     c --> v{"blocks only on a one-sentence failure path"}
     v --> d["draft: event, what ran, inline comments, body"]
     d -->|--post| f["post one review"]
-    f --> g["save to vault with edited flag<br/>(skipped for vault: false identities)"]
+    f --> g["save to vault with edited flag<br/>(skipped for vault: false identities and when the vault is not a git clone)"]
 ```
 
 The checks are read-only outside the throwaway worktree: no cloud API, `kubectl`, `terraform plan` or `apply`. A check whose tool is missing is named in the draft rather than skipped silently.
@@ -140,7 +140,7 @@ flowchart TB
     b --> c{"draft shown, you approve"}
     c --> d{"where?"}
     d -->|kio| e["decisions/ in this repo, via PR"]
-    d -->|vault allowed| f["vault: projects/name/decisions/"]
+    d -->|vault allowed and a clone| f["vault: projects/name/decisions/"]
     d -->|vault: false| g["text handed to you for that org's own systems"]
 ```
 
