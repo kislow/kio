@@ -273,3 +273,120 @@ func TestFindListSearch(t *testing.T) {
 		t.Fatal("empty query must be refused")
 	}
 }
+
+func seedReader(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for rel, body := range map[string]string{
+		"projects/acme/Backend.md": "Go and Postgres.\n",
+		"projects/other/Plan.md":   "Postgres elsewhere.\n",
+		"engineering/Style.md":     "Postgres naming.\n",
+		"Home.md":                  "Postgres home.\n",
+	} {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func TestReaderConfinesFindListAndSearch(t *testing.T) {
+	t.Parallel()
+	root := seedReader(t)
+	r, err := NewReader(root, []string{"projects/acme", "engineering/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := r.Find("Backend"); err != nil || len(n) != 1 {
+		t.Fatalf("find inside: %v %v", n, err)
+	}
+	for _, stem := range []string{"Plan", "Home"} {
+		if n, err := r.Find(stem); err != nil || len(n) != 0 {
+			t.Errorf("find %q outside: %v %v", stem, n, err)
+		}
+	}
+	hits, err := r.Search("postgres", 10)
+	if err != nil || len(hits) != 2 || hits[0].Rel != "engineering/Style.md" || hits[1].Rel != "projects/acme/Backend.md" {
+		t.Fatalf("search: %v %v", hits, err)
+	}
+	if _, err := r.Search(" ", 10); !errors.Is(err, ErrRefused) {
+		t.Fatalf("empty query: %v", err)
+	}
+	root2, err := r.List("")
+	if err != nil || len(root2) != 2 || !root2[0].IsDir || !root2[1].IsDir {
+		t.Fatalf("root: %v %v", root2, err)
+	}
+	for _, folder := range []string{"projects/other", "..", "projects/acme/../other"} {
+		if _, err := r.List(folder); !errors.Is(err, ErrRefused) {
+			t.Errorf("list %q: %v", folder, err)
+		}
+	}
+	if _, err := r.List("engineering/missing"); !errors.Is(err, ErrRefused) {
+		t.Errorf("missing folder: %v", err)
+	}
+}
+
+func TestReaderSkipsAListedFolderThatDoesNotExist(t *testing.T) {
+	t.Parallel()
+	r, err := NewReader(seedReader(t), []string{"reference", "engineering"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hits, err := r.Search("postgres", 10); err != nil || len(hits) != 1 {
+		t.Fatalf("search: %v %v", hits, err)
+	}
+}
+
+func TestReaderRefusesALinkedFolderAboveTheListedOnes(t *testing.T) {
+	t.Parallel()
+	root := seedReader(t)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Skip("no symlinks here:", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "projects"), filepath.Join(root, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewReader(root, []string{"linked/sub", "alias/acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, folder := range []string{"linked", "alias"} {
+		if _, err := r.List(folder); !errors.Is(err, ErrRefused) {
+			t.Errorf("list %q: %v", folder, err)
+		}
+	}
+}
+
+func TestReaderWithoutAListIsTheWholeVault(t *testing.T) {
+	t.Parallel()
+	root := seedReader(t)
+	for _, allow := range [][]string{nil, {}} {
+		r, err := NewReader(root, allow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hits, err := r.Search("postgres", 10); err != nil || len(hits) != 4 {
+			t.Fatalf("search: %v %v", hits, err)
+		}
+		if es, err := r.List(""); err != nil || len(es) != 3 {
+			t.Fatalf("root: %v %v", es, err)
+		}
+	}
+	if hits, err := Search(root, "postgres", 10); err != nil || len(hits) != 4 {
+		t.Fatalf("package Search: %v %v", hits, err)
+	}
+}
+
+func TestNewReaderRefusesPathsOutsideTheVault(t *testing.T) {
+	t.Parallel()
+	for _, bad := range []string{"", "/etc", "../x", "a/../../x", ".git", "projects/.obsidian", "a//b", "./a"} {
+		if _, err := NewReader(t.TempDir(), []string{bad}); !errors.Is(err, ErrRefused) {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}

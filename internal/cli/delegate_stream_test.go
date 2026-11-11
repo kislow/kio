@@ -93,8 +93,13 @@ func TestDelegateStreamsProgressAndShowsTheRunningJob(t *testing.T) {
 		t.Fatalf("ls --json: %+v %v", listed, err)
 	}
 	watched := d.runApp(t, "delegate", "watch", job.ID)
-	if err := <-done; err != nil {
-		t.Fatal(err)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("delegate did not finish")
 	}
 	progress := regexp.MustCompile(`(?m)^ki: \d\d:\d\d claude  (edit docs/x.md|message: edited it|bash go test \./\.\.\.)$`)
 	if got := progress.FindAllString(stderr.String(), -1); len(got) != 3 {

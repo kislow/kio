@@ -69,6 +69,25 @@ jobs:
       - name: Scan for secrets
         run: gitleaks detect --redact --source . --config .gitleaks.toml
 
+  # The release export drops scripts/publish/ and refuses a tree the scan flags, so
+  # a PR that adds a forbidden term would otherwise pass here and fail only at
+  # export. Only the scan runs: the go and kb jobs already build and test the code.
+  # The exported copy of this file has no scripts/publish/, hence the guard.
+  publish-scan:
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Scan the exported tree
+        run: |
+          set -euo pipefail
+          [ -x scripts/publish/scan.sh ] || { echo "no scripts/publish/, nothing to scan"; exit 0; }
+          out="$(mktemp -d)"
+          trap 'rm -rf "${out}"' EXIT
+          scripts/publish/export-tree.sh "${out}/tree"
+          scripts/publish/scan.sh "${out}/tree"
+
   go:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     permissions:

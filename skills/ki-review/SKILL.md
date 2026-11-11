@@ -113,7 +113,7 @@ Review body: the verdict first in one line (how many blockers, how many smaller 
 
 - Run the self-check again on the final text: no em dash, every comment states its failure path.
 - Post one review: `gh api repos/{owner}/{repo}/pulls/{number}/reviews -X POST --input <json>` with `event`, `body` and `comments` (`path`, `line`, `side: "RIGHT"`, `body`). If GitHub rejects a line, move that comment into the body and submit once more. Report the review URL.
-- Then save the review as posted, if `ki status --json` shows `identity.vault` as true and `KI_VAULT` is set: `$KI_VAULT/reviews/<owner>-<repo>/PR <number> <Short Topic>.md` (Title Case with spaces) with frontmatter `type: pr-review`, `repo`, `pr`, `date`, `verdict`, and `edited: true` if the user changed the draft (otherwise `false`). Then `ki vault push -m "review <owner>/<repo>#<number>"`; if it stops on a conflict, show its message. Skip this silently otherwise.
+- Then save the review as posted, if `ki status --json` shows `identity.vault` and `vault_writable` both true: `$KI_VAULT/reviews/<owner>-<repo>/PR <number> <Short Topic>.md` (Title Case with spaces) with frontmatter `type: pr-review`, `repo`, `pr`, `date`, `verdict`, and `edited: true` if the user changed the draft (otherwise `false`). Then `ki vault push -m "review <owner>/<repo>#<number>"`; if it stops on a conflict, show its message. Skip this silently otherwise.
 
 ## Rules
 

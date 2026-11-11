@@ -178,7 +178,8 @@ func TestDoctorChecksVault(t *testing.T) {
 	v := newVaultEnv(t)
 	for _, tc := range []struct{ dir, want string }{
 		{v.a, "✓ KI_VAULT"},
-		{t.TempDir(), "✗ KI_VAULT"},
+		{t.TempDir(), "read-only (not a git clone)"},
+		{filepath.Join(t.TempDir(), "missing"), "✗ KI_VAULT"},
 	} {
 		v.vars["KI_VAULT"] = tc.dir
 		v.out.Reset()

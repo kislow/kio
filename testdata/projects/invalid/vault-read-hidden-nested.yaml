@@ -1,0 +1,4 @@
+identities:
+  work: {github_user: alice, email: alice@work.example, credential: work, vault_read: ["projects/.git"], ingest: true}
+projects:
+  - {name: x, repo: https://github.com/a/b, identity: work, brains: [cortex]}

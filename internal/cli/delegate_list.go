@@ -59,7 +59,7 @@ func (a *App) delegateList(args []string) error {
 		return nil
 	}
 	w := tabwriter.NewWriter(a.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "JOB\tTITLE\tAGENT\tMODEL\tSTATUS\tREPO\tISSUE\tAGE\tDETAIL\tLAST")
+	fmt.Fprintln(w, "JOB\tTITLE\tAGENT\tMODEL\tSTATUS\tREPO\tBRANCH\tISSUE\tAGE\tDETAIL\tLAST")
 	color := a.useColor()
 	for _, j := range jobs {
 		age, detail, last := ki.Age(time.Since(j.Started)), truncate(j.Detail, 60), ""
@@ -70,7 +70,7 @@ func (a *App) delegateList(args []string) error {
 		case ki.JobQueued:
 			agent, detail = "role "+j.Role, truncate(j.Detail, 60)+"; "+expectedStart(j.StartAfter)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", j.ID, orDefault(truncate(j.Title, 50), "-"), agent, orDefault(j.Model, "-"), j.Status, repoLabel(j.Repo), orDefault(j.Issue, j.PR), age, detail, last)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", j.ID, orDefault(truncate(j.Title, 50), "-"), agent, orDefault(j.Model, "-"), j.Status, repoLabel(j.Repo), orDefault(truncate(j.Branch, 50), "-"), orDefault(j.Issue, j.PR), age, detail, last)
 	}
 	if err := w.Flush(); err != nil {
 		return fmt.Errorf("printing jobs: %w", err)

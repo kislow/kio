@@ -156,7 +156,7 @@ func (a *App) prepare(ctx context.Context, ra ki.RunArgs) (*prepared, error) {
 	if url != "" {
 		cfg = ki.NewMCPConfig(url, token, s.Brains)
 	}
-	cfg = ki.AddVaultServer(cfg, a.binary(), a.Getenv("KI_VAULT"))
+	cfg = a.addVaultServer(ctx, cfg, identityReadPaths(s))
 	if err := ki.WritePrivate(mcpPath, cfg); err != nil {
 		return nil, fmt.Errorf("writing MCP config: %w", err)
 	}

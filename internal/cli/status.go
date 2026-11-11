@@ -39,7 +39,7 @@ func (a *App) status(ctx context.Context, args []string) error {
 			"config_instructions": nilIfEmpty(h.configInstructions()),
 			"knowledge_base":      nilIfEmpty(a.mcpURL(h)), "projects": s.Projects,
 			"project": nil, "brains": s.Brains, "sensitive": s.Sensitive, "board": nilIfEmpty(s.Board),
-			"identity": nil, "identity_ok": s.Folder || ki.IdentityProblem(s, email) == "", "vault_dir": nilIfEmpty(a.Getenv("KI_VAULT")),
+			"identity": nil, "identity_ok": s.Folder || ki.IdentityProblem(s, email) == "", "vault_dir": nilIfEmpty(a.Getenv("KI_VAULT")), "vault_writable": a.vaultIsClone(ctx),
 			"unmapped": s.Unmapped && !s.Folder, "mode": nilIfEmpty(string(mode)),
 			"folder": s.Folder, "folder_identities": nil,
 		}

@@ -682,3 +682,36 @@ func TestAskContinueRefusesWhileAnotherFollowUpRuns(t *testing.T) {
 		t.Fatalf("a dead follow-up blocked the conversation: %v", err)
 	}
 }
+
+func TestAskPassesTheIdentitysReadPathsToTheVaultServer(t *testing.T) {
+	cases := map[string]struct {
+		identity string
+		want     []string
+	}{
+		"limited":   {", vault_read: [projects/acme, engineering/]", []string{"vault", "mcp", "--read-only", "--path", "projects/acme", "--path", "engineering"}},
+		"unlimited": {"", []string{"vault", "mcp", "--read-only"}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			d := newAskEnv(t, "identities: [work]\nmodels:\n  search: {claude: haiku}\n")
+			write(t, filepath.Join(d.harness, "deploy", "config", "projects.yaml"), "identities:\n  work: {github_user: alice-work, email: alice@work.example, credential: work, vault: false, ingest: true"+c.identity+"}\nprojects:\n  - {name: app, repo: https://github.com/work/app, identity: work, brains: [app, voice]}\n")
+			mcpCopy := filepath.Join(t.TempDir(), "mcp.json")
+			d.worker["RESULT"] = claudeAnswer(askAnswer)
+			d.worker["COPY_MCP_CONFIG"] = mcpCopy
+			if err := d.ask("What is the vault pusher?", "--json"); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(mcpCopy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var cfg ki.MCPConfig
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				t.Fatal(err)
+			}
+			if v := cfg.MCPServers[ki.VaultServerName]; !slices.Equal(v.Args, c.want) {
+				t.Errorf("vault server args %v, want %v", v.Args, c.want)
+			}
+		})
+	}
+}

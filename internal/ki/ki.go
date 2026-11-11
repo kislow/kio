@@ -157,14 +157,6 @@ func VaultServer(kiBinary, vaultDir string) MCPServer {
 	}
 }
 
-// AddVaultServer adds the vault server to a config when vaultDir is set.
-func AddVaultServer(cfg MCPConfig, kiBinary, vaultDir string) MCPConfig {
-	if vaultDir != "" && kiBinary != "" {
-		cfg.MCPServers[VaultServerName] = VaultServer(kiBinary, vaultDir)
-	}
-	return cfg
-}
-
 // MCPConfig is the file passed to `claude --mcp-config`.
 type MCPConfig struct {
 	MCPServers map[string]MCPServer `json:"mcpServers"`

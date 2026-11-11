@@ -44,6 +44,10 @@ type Identity struct {
 	// Vault is false for employers or clients whose content must never be
 	// copied into the vault.
 	Vault bool
+	// VaultRead limits what `ki ask` may read from the vault to these folders,
+	// relative to the vault root and without a trailing slash. Empty means the
+	// whole vault.
+	VaultRead []string
 	// Ingest is false for employers or clients whose repos must never be
 	// ingested into any brain. It has no default: every identity states it.
 	Ingest bool
@@ -110,11 +114,12 @@ type Config struct {
 func (c *Config) IsSensitive(brain string) bool { return scope.MatchesAny(c.SensitiveBrains, brain) }
 
 type rawIdentity struct {
-	GitHubUser string `yaml:"github_user"`
-	Email      string `yaml:"email"`
-	Credential string `yaml:"credential"`
-	Vault      *bool  `yaml:"vault"`
-	Ingest     *bool  `yaml:"ingest"`
+	GitHubUser string   `yaml:"github_user"`
+	Email      string   `yaml:"email"`
+	Credential string   `yaml:"credential"`
+	Vault      *bool    `yaml:"vault"`
+	VaultRead  []string `yaml:"vault_read"`
+	Ingest     *bool    `yaml:"ingest"`
 }
 
 type rawRule struct {
@@ -186,9 +191,16 @@ func Parse(data []byte) (*Config, error) {
 			return nil, invalid("%s: ingest must be set to true or false", where)
 		}
 		vault := ri.Vault == nil || *ri.Vault
+		var vaultRead []string
+		for _, folder := range ri.VaultRead {
+			if !validVaultRead(folder) {
+				return nil, invalid("%s: vault_read path %q must be a relative folder inside the vault, without .. or hidden folders", where, folder)
+			}
+			vaultRead = append(vaultRead, strings.TrimSuffix(folder, "/"))
+		}
 		cfg.Identities[name] = Identity{
 			Name: name, GitHubUser: ri.GitHubUser, Email: ri.Email, Credential: ri.Credential,
-			Vault: vault, Ingest: *ri.Ingest,
+			Vault: vault, VaultRead: vaultRead, Ingest: *ri.Ingest,
 		}
 	}
 
@@ -367,6 +379,21 @@ func validWorkspaceVault(folder string) bool {
 	}
 	clean := path.Clean(folder)
 	return clean != "projects" && clean != "diagrams/projects" && clean == strings.TrimSuffix(folder, "/")
+}
+
+// validVaultRead accepts a normalised relative folder, with or without a
+// trailing slash, none of whose parts is hidden (which also rules out "..").
+func validVaultRead(folder string) bool {
+	folder = strings.TrimSuffix(folder, "/")
+	if folder == "" || path.Clean(folder) != folder || path.IsAbs(folder) || strings.ContainsAny(folder, "\\\x00") {
+		return false
+	}
+	for _, part := range strings.Split(folder, "/") {
+		if strings.HasPrefix(part, ".") {
+			return false
+		}
+	}
+	return true
 }
 
 func containsDotDot(p string) bool {

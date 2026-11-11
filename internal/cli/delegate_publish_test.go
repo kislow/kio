@@ -28,6 +28,7 @@ type ghStub struct {
 	calls  [][]string
 	tokens []string
 	open   string // URL `gh pr list` finds, "" for none
+	head   string // headRefName `gh pr view` prints, "" to make it fail
 }
 
 func (g *ghStub) run(_ context.Context, token string, _ []byte, args ...string) ([]byte, error) {
@@ -40,6 +41,8 @@ func (g *ghStub) run(_ context.Context, token string, _ []byte, args ...string) 
 			return []byte("[]"), nil
 		}
 		return json.Marshal([]map[string]string{{"url": g.open}})
+	case args[0] == "pr" && args[1] == "view" && g.head != "":
+		return json.Marshal(map[string]string{"headRefName": g.head})
 	case args[0] == "pr" && args[1] == "create":
 		return []byte(newPullURL + "\n"), nil
 	}
@@ -415,5 +418,107 @@ func TestSandboxedWorkerOriginGhCannotAddressIsNotPushed(t *testing.T) {
 	}
 	if len(p.gh.calls) != 0 {
 		t.Fatalf("gh calls %v", p.gh.calls)
+	}
+}
+
+func TestSandboxedWorkerThatRenamedItsBranchIsPublishedUnderTheNewName(t *testing.T) {
+	p := newPublishEnv(t)
+	p.gh.head = "fix/renamed"
+	p.worker["RESULT"], p.worker["COMMIT_MSG"], p.worker["RENAME_BRANCH"] = cursorDone, "fix: x", "fix/renamed"
+	if err := p.cursor(); err != nil {
+		t.Fatal(err)
+	}
+	r := p.result(t)
+	if r.Status != ki.JobPR || r.Detail != newPullURL {
+		t.Fatalf("result %+v", r)
+	}
+	if r.Branch != "fix/renamed" || !strings.HasPrefix(r.ScratchBranch, "chore/") {
+		t.Fatalf("branch %q, scratch %q", r.Branch, r.ScratchBranch)
+	}
+	if out := p.remoteBranches(t); !strings.Contains(out, "fix/renamed") || strings.Contains(out, "chore/") {
+		t.Fatalf("origin has\n%s", out)
+	}
+	creates := p.gh.called("create")
+	if len(creates) != 1 {
+		t.Fatalf("gh pr create calls: %v", creates)
+	}
+	if i := slices.Index(creates[0], "--head"); i < 0 || creates[0][i+1] != "fix/renamed" {
+		t.Fatalf("the PR is opened for the renamed branch: %v", creates[0])
+	}
+	if ledger, err := ki.ReadLedger(filepath.Join(p.app.jobsDir(), ki.LedgerFile)); err != nil || len(ledger) != 1 || ledger[0].Branch != "fix/renamed" || ledger[0].ScratchBranch != r.ScratchBranch {
+		t.Fatalf("ledger %+v, %v", ledger, err)
+	}
+}
+
+func TestSandboxedWorkerThatRenamedItsBranchToALeakingNameIsNotPushed(t *testing.T) {
+	p := newPublishEnv(t)
+	p.worker["RESULT"], p.worker["COMMIT_MSG"], p.worker["RENAME_BRANCH"] = cursorDone, "fix: x", "ki/j-20261111-111145-5a25"
+	if err := p.cursor(); err != nil {
+		t.Fatal(err)
+	}
+	if r := p.result(t); r.Status != ki.JobFailed || !strings.HasPrefix(r.Detail, "leak guard:") || len(p.gh.calls) != 0 {
+		t.Fatalf("result %+v, gh %v", r, p.gh.calls)
+	}
+}
+
+func TestSandboxedWorkerThatEndsOnTheDefaultBranchIsStillRefused(t *testing.T) {
+	p := newPublishEnv(t)
+	p.worker["RESULT"], p.worker["COMMIT_MSG"], p.worker["RENAME_BRANCH"] = cursorDone, "fix: x", "main"
+	gitIn(t, p.repo, "switch", "-q", "-c", "elsewhere")
+	if err := p.cursor(); err != nil {
+		t.Fatal(err)
+	}
+	if r := p.result(t); r.Status != ki.JobBlocked || !strings.Contains(r.Detail, "main itself") || len(p.gh.calls) != 0 {
+		t.Fatalf("result %+v, gh %v", r, p.gh.calls)
+	}
+}
+
+func TestWorkerThatRenamedPushedAndReportedAPullRequestIsRecordedOnThePullRequestHead(t *testing.T) {
+	p := newPublishEnv(t)
+	const url = "https://github.com/work/app/pull/5"
+	p.gh.head = "fix/renamed"
+	p.worker["RESULT"] = `{"type":"result","subtype":"success","is_error":false,"result":"PR: ` + url + `"}`
+	p.worker["COMMIT_MSG"], p.worker["RENAME_BRANCH"], p.worker["PUSH"] = "fix: x", "fix/renamed", "1"
+	if err := p.delegate("--task", "t", "--force", "--json", "--quiet"); err != nil {
+		t.Fatal(err)
+	}
+	r := p.result(t)
+	if r.Status != ki.JobPR || r.Detail != url || r.Branch != "fix/renamed" || !strings.HasPrefix(r.ScratchBranch, "chore/") {
+		t.Fatalf("result %+v", r)
+	}
+	views := p.gh.called("view")
+	if len(views) != 1 || !slices.Contains(views[0], url) {
+		t.Fatalf("gh pr view calls: %v", views)
+	}
+}
+
+func TestWorkerThatRenamedWithoutAPullRequestIsRecordedOnTheWorktreeBranch(t *testing.T) {
+	for _, tc := range []struct {
+		name, result string
+	}{
+		{"done", claudeDone},
+		{"pr whose head gh cannot read", `{"type":"result","subtype":"success","is_error":false,"result":"PR: https://github.com/work/app/pull/5"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newPublishEnv(t)
+			p.worker["RESULT"], p.worker["COMMIT_MSG"], p.worker["RENAME_BRANCH"] = tc.result, "fix: x", "fix/renamed"
+			if err := p.delegate("--task", "t", "--force", "--json", "--quiet"); err != nil {
+				t.Fatal(err)
+			}
+			if r := p.result(t); r.Branch != "fix/renamed" || !strings.HasPrefix(r.ScratchBranch, "chore/") {
+				t.Fatalf("branch %q, scratch %q", r.Branch, r.ScratchBranch)
+			}
+		})
+	}
+}
+
+func TestJobThatKeepsItsBranchHasNoScratchBranch(t *testing.T) {
+	p := newPublishEnv(t)
+	p.worker["RESULT"], p.worker["COMMIT_MSG"] = claudeDone, "fix: x"
+	if err := p.delegate("--task", "t", "--force", "--json", "--quiet"); err != nil {
+		t.Fatal(err)
+	}
+	if r := p.result(t); r.ScratchBranch != "" || !strings.HasPrefix(r.Branch, "chore/") {
+		t.Fatalf("branch %q, scratch %q", r.Branch, r.ScratchBranch)
 	}
 }

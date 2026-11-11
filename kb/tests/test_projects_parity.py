@@ -55,3 +55,9 @@ def test_vault_folders():
     cfg = projects.load(FIXTURES / "valid" / "vault-folders.yaml")
     assert cfg.projects[0].vault_folders == ("acme", "acme-platform")
     assert cfg.projects[1].vault_folders == ()
+
+
+def test_vault_read():
+    cfg = projects.load(FIXTURES / "valid" / "vault-read.yaml")
+    assert cfg.identities["work"].vault_read == ("projects/acme", "engineering", "reference")
+    assert cfg.identities["other"].vault_read == ()

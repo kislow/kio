@@ -63,6 +63,7 @@ class _RawIdentity(_Strict):
     email: Text
     credential: Text
     vault: bool = True
+    vault_read: list[Text] = Field(default_factory=list)
     ingest: bool  # no default: every identity says whether its repos may be ingested
 
 
@@ -127,6 +128,8 @@ class Identity:
     credential: str
     # False for employers or clients whose content must never be copied into the vault.
     vault: bool = True
+    # Vault folders `ki ask` may read, relative to the vault root; empty means the whole vault.
+    vault_read: tuple[str, ...] = ()
     # False for employers or clients whose repos must never be ingested. Always stated.
     ingest: bool = False
 
@@ -198,6 +201,15 @@ def _shape(data: object) -> _RawFile:
         raise ConfigError(f"{where}: {first['msg']}") from None
 
 
+def _valid_vault_read(folder: str) -> bool:
+    """A normalised relative folder, none of whose parts is hidden (which rules out `..`)."""
+    folder = folder.removesuffix("/")
+    if not folder or folder.startswith("/") or "\\" in folder or "\x00" in folder:
+        return False
+    parts = folder.split("/")
+    return all(part and part != "." and not part.startswith(".") for part in parts)
+
+
 def _identities(raw: _RawFile) -> dict[str, Identity]:
     identities: dict[str, Identity] = {}
     for name, ri in raw.identities.items():
@@ -206,12 +218,19 @@ def _identities(raw: _RawFile) -> dict[str, Identity]:
             raise ConfigError(f"{where}: invalid name")
         if not valid_name(ri.credential):
             raise ConfigError(f"{where}: invalid credential name {ri.credential!r}")
+        for folder in ri.vault_read:
+            if not _valid_vault_read(folder):
+                raise ConfigError(
+                    f"{where}: vault_read path {folder!r} must be a relative folder "
+                    "inside the vault, without .. or hidden folders"
+                )
         identities[name] = Identity(
             name=name,
             github_user=ri.github_user,
             email=ri.email,
             credential=ri.credential,
             vault=ri.vault,
+            vault_read=tuple(folder.removesuffix("/") for folder in ri.vault_read),
             ingest=ri.ingest,
         )
     return identities

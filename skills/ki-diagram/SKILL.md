@@ -16,7 +16,7 @@ When the `ki-kb` tools are offered, call `get_context` for the project the drawi
 
 ## 2. Find the files
 
-Run `ki status --json`. If the identity has `vault: false`, nothing goes in the vault: ask the user for a folder outside it. Otherwise the drawing lives in `$KI_VAULT/diagrams/projects/<project>/` (if `KI_VAULT` is unset, ask where the vault is). For a drawing called `<Title>` (the user's own name for it, such as `ki CLI` or `Vault Pusher`):
+Run `ki status --json`. If the identity has `vault: false`, nothing goes in the vault: ask the user for a folder outside it. Otherwise the drawing lives in `$KI_VAULT/diagrams/projects/<project>/` (if `vault_writable` is false, `KI_VAULT` is unset or not a git clone: ask where to save it). For a drawing called `<Title>` (the user's own name for it, such as `ki CLI` or `Vault Pusher`):
 
 ```text
 <Title>.md                          the drawing; Obsidian opens it, the user edits it

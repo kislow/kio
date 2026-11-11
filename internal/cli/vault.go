@@ -16,7 +16,7 @@ import (
 // the local git calls behind commandTimeout.
 const vaultTimeout = 2 * time.Minute
 
-const vaultUsage = "usage: ki vault push [-m message] | ki vault mcp [--read-only]"
+const vaultUsage = "usage: ki vault push [-m message] | ki vault mcp [--read-only [--path folder]...]"
 
 func (a *App) vault(ctx context.Context, args []string) error {
 	if len(args) == 0 {
@@ -24,13 +24,11 @@ func (a *App) vault(ctx context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "mcp":
-		switch {
-		case len(args) == 1:
-			return a.vaultMCP(ctx, false)
-		case len(args) == 2 && args[1] == "--read-only":
-			return a.vaultMCP(ctx, true)
+		readOnly, paths, ok := parseVaultMCPArgs(args[1:])
+		if !ok {
+			return fail(vaultUsage)
 		}
-		return fail(vaultUsage)
+		return a.vaultMCP(ctx, readOnly, paths)
 	case "push":
 	default:
 		return fail(vaultUsage)
@@ -43,6 +41,59 @@ func (a *App) vault(ctx context.Context, args []string) error {
 		msg = rest[1]
 	}
 	return a.vaultPush(ctx, msg)
+}
+
+// parseVaultMCPArgs reads the flags of `ki vault mcp`: --read-only, and with it
+// --path <folder> any number of times. --path alone is refused later by the
+// server, with a message; here only malformed flags are not ok.
+func parseVaultMCPArgs(args []string) (readOnly bool, paths []string, ok bool) {
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch arg {
+		case "--read-only":
+			readOnly = true
+		case "--path":
+			if len(args) == 0 {
+				return false, nil, false
+			}
+			paths = append(paths, args[0])
+			args = args[1:]
+		default:
+			return false, nil, false
+		}
+	}
+	return readOnly, paths, true
+}
+
+// vaultIsClone is whether $KI_VAULT is a git work tree, which the writing
+// server and `ki vault push` need. A folder that only receives the vault
+// through a sync tool is not one.
+func (a *App) vaultIsClone(ctx context.Context) bool {
+	dir := a.Getenv("KI_VAULT")
+	return dir != "" && git(ctx, dir, "rev-parse", "--is-inside-work-tree") == "true"
+}
+
+// sessionVaultServer is the vault server a session or an agent config gets:
+// the writing one for a clone, the read-only one (limited to readPaths) for a
+// folder that is not, and none without a vault or without the ki binary.
+func (a *App) sessionVaultServer(ctx context.Context, readPaths []string) ki.MCPServer {
+	dir := a.Getenv("KI_VAULT")
+	if dir == "" || a.binary() == "" {
+		return ki.MCPServer{}
+	}
+	if a.vaultIsClone(ctx) {
+		return ki.VaultServer(a.binary(), dir)
+	}
+	return ki.ReadOnlyVaultServer(a.binary(), dir, readPaths...)
+}
+
+// addVaultServer adds the session's vault server to cfg, when there is one.
+func (a *App) addVaultServer(ctx context.Context, cfg ki.MCPConfig, readPaths []string) ki.MCPConfig {
+	if srv := a.sessionVaultServer(ctx, readPaths); srv.Command != "" {
+		cfg.MCPServers[ki.VaultServerName] = srv
+	}
+	return cfg
 }
 
 // vaultPush commits everything that changed in $KI_VAULT, pulls with rebase

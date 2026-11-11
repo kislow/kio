@@ -41,7 +41,7 @@ const coreUsage = `ki: agent sessions scoped by the central projects file
   ki setup machine <identity>...                                  record which identities this machine carries (machine.yaml)
   ki setup config <dir>                                           use a configuration directory of your own (projects.yaml and friends)
   ki vault push [-m message]                                      commit, pull with rebase and push $KI_VAULT
-  ki vault mcp                                                    serve $KI_VAULT to an agent over stdio (started by the agent)
+  ki vault mcp [--read-only [--path DIR]...]                      serve $KI_VAULT to an agent over stdio (started by the agent); --read-only needs no git
   ki mcp ls [--json] [--agent claude|cursor|codex]                every MCP server each agent can reach, with source, transport and status
   ki mecca [attach|new|ls|kill]                                   tmux hub with one window per agent session (ki mecca help)
   ki delegate (--task "..." | --issue N) [--role R | --agent A] [--json]  one headless task in a worktree; --issue claims it first
@@ -244,14 +244,25 @@ func (a *App) bare(name string, args []string) (bool, error) {
 	return true, fail("ki %s takes no arguments, got %q", name, strings.Join(args, " "))
 }
 
-// usageLine is the line of `ki help` for one core command.
+// usageLine is the entry of `ki help` for one core command, with the indented
+// lines that continue its description.
 func usageLine(name string) string {
+	var entry []string
 	for line := range strings.SplitSeq(coreUsage, "\n") {
-		if t := strings.TrimSpace(line); t == "ki "+name || strings.HasPrefix(t, "ki "+name+" ") {
-			return t
+		t := strings.TrimSpace(line)
+		switch {
+		case t == "ki "+name || strings.HasPrefix(t, "ki "+name+" "):
+			entry = append(entry, line)
+		case len(entry) > 0 && t != "" && !strings.HasPrefix(t, "ki "):
+			entry = append(entry, line)
+		case len(entry) > 0:
+			return strings.Join(entry, "\n")
 		}
 	}
-	return "ki " + name
+	if len(entry) > 0 {
+		return strings.Join(entry, "\n")
+	}
+	return "  ki " + name
 }
 
 // --- environment --------------------------------------------------------------

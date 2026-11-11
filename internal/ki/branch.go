@@ -30,8 +30,20 @@ func IssueBranch(number int, title string) string {
 	return name
 }
 
-// TaskBranch is the branch of a job that has no issue.
-func TaskBranch(jobID string) string { return "chore/" + jobID }
+// TaskBranch is the branch of a job that has no issue: chore/, the slug of its
+// title and the job id's random part, so jobs started together on one task get
+// different branches. The whole id stays out of it, since a branch name reaches GitHub.
+func TaskBranch(title, jobID string) string {
+	name := "chore/" + orTask(slug(title))
+	return name + "-" + jobID[strings.LastIndex(jobID, "-")+1:]
+}
+
+func orTask(s string) string {
+	if s == "" {
+		return "task"
+	}
+	return s
+}
 
 // UniqueBranch is name, or name with the job id's last part when taken reports
 // it exists, so a second job on one issue does not fail git worktree add.

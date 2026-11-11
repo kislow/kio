@@ -10,7 +10,7 @@ With no `KI_VAULT` and no workspace in `projects.yaml`, `ki doctor`, `ki setup` 
 | --- | --- | --- |
 | The vault | A folder of Markdown notes, a git clone of your private vault repo that Obsidian opens (`~/notes` in the examples) | `KI_VAULT` exported on the machine that holds the clone |
 | `ki vault push` | Commits whatever changed in the vault, pulls with rebase and pushes | `KI_VAULT` |
-| `ki-vault` MCP server | `vault_write`, `vault_read`, `vault_list` and `vault_search` for any agent, started by `ki` over stdio (`ki vault mcp`) | `KI_VAULT` |
+| `ki-vault` MCP server | `vault_write`, `vault_read`, `vault_list` and `vault_search` for any agent, started by `ki` over stdio (`ki vault mcp`). The read-only form (`ki vault mcp --read-only`) serves the three read tools from any folder | `KI_VAULT`; a git clone for writing, any folder for reading |
 | Vault as a brain source | The vault repo listed in `projects.yaml` like any other project, with ingest rules per folder | The repo in `projects.yaml` |
 | Obsidian Sync | Carries notes between your devices | An Obsidian Sync subscription |
 | `vault-pusher` | A cluster deployment that receives the vault through Obsidian Sync and pushes it to the vault repo | Sync, a deploy key, a `kio-vault` image you build ([below](#build-the-image-yourself)) |
@@ -27,10 +27,10 @@ export KI_VAULT="$HOME/notes"
 From then on:
 
 - `/ki-decision`, `/ki-review`, `/ki-debug` and `/ki-diagram` write under `$KI_VAULT/projects/<project>/`, only for identities whose `vault` is not `false` in `projects.yaml` (see [skills](skills.md)), then run `ki vault push`.
-- Every session also gets the `ki-vault` server. Claude Code gets it through the session's MCP config, Codex through the `ki setup codex` block (rerun it after moving the vault or reinstalling `ki`), Cursor through `ki cursor`. It refuses what `ki vault push` refuses, plus credential-shaped values and a second note with an existing name.
+- Every session also gets the `ki-vault` server, the writing one when `KI_VAULT` is a git clone and the read-only one when it is any other folder (see [a second machine](#a-second-machine)). Claude Code gets it through the session's MCP config, Codex through the `ki setup codex` block (rerun it after moving the vault or reinstalling `ki`), Cursor through `ki cursor`. It refuses what `ki vault push` refuses, plus credential-shaped values and a second note with an existing name.
 - `ki ask` can use `--source vault`, read-only.
 - `ki recap` adds the notes changed in the window from `projects/<folder>/` folders that belong to the identity.
-- `ki doctor` gains a Vault section (whether `KI_VAULT` is a usable clone with an origin) and a Diagrams section.
+- `ki doctor` gains a Vault section (whether `KI_VAULT` is a usable clone with an origin, or `read-only (not a git clone)` for a plain folder) and a Diagrams section.
 
 `ki vault push` refuses to run from a repo whose identity is `vault: false`, when the vault would be committed with an email other than its identity's, and while a rebase from an earlier conflict is still open.
 
@@ -38,7 +38,21 @@ Add the vault repo to `projects.yaml` under the identity that owns it to have th
 
 ## A second machine
 
-Install Obsidian, sign in to Obsidian Sync and connect the remote vault. That is all a second machine needs to read and write notes. Leave `KI_VAULT` unset there: the `vault-pusher` in the cluster pushes what Sync brings in, and the skills on that machine say so and hand you the text. Set `KI_VAULT` on a second machine only if it should push too. It then needs its own git clone of the vault repo, not the Sync folder.
+Install Obsidian, sign in to Obsidian Sync and connect the remote vault. That is all a second machine needs to read and write notes in Obsidian: the `vault-pusher` in the cluster pushes what Sync brings in. A Sync-only machine may export `KI_VAULT` pointing at the Sync folder; sessions there read the vault and do not write it. Every session and `ki ask` get the read-only server (`ki vault mcp --read-only`, limited to the identity's `vault_read` folders), which needs only an existing folder, no git; `ki status --json` reports `vault_writable: false`, so the note-writing skills hand you the text as they do without a vault, and `ki doctor` shows `read-only (not a git clone)`. `vault_write` and `ki vault push` need a git clone of the vault repo with an origin, so a machine that should push too needs its own clone, not the Sync folder.
+
+## Limit what an identity reads
+
+By default `ki ask` can list, search and read the whole vault. To keep an identity inside some folders, give it `vault_read` in `projects.yaml`, folders relative to the vault root:
+
+```yaml
+identities:
+  work:
+    vault_read: [projects/acme, engineering, reference]
+```
+
+`ki ask` then starts the read-only server as `ki vault mcp --read-only --path projects/acme --path engineering --path reference`, and that server lists, searches and reads only files under those folders. `vault_list` on the root and on a parent such as `projects` shows only the way down to them. A folder outside them is refused with an error, including one reached through `..` or through a symlink that resolves outside the listed folders or the vault. A note outside them is reported as not found. Without `vault_read`, or with an empty list, the whole vault is readable as before. A path that is absolute, contains `..`, or names a hidden folder is a config error when `projects.yaml` is loaded, and `--path` is refused on the writing server.
+
+`vault_read` limits the vault tools, not the agent: an agent with its own file access, such as Codex in its read-only sandbox, can still read the vault folder directly. Skills run on the same read-only setup as `ki ask`, so a read-only skill reads only the identity's `vault_read` folders, while a skill that may call `vault_write` gets the whole vault. `vault_read` limits reads only. The `vault` flag of an identity is separate: it keeps the skills and `ki vault push` from writing that identity's material into the vault, and it does not switch off the read-only server in `ki ask`.
 
 Obsidian Sync carries the notes between devices; git carries them to the cluster. Two things push to the vault repo: `ki vault push` on your main machine and the `vault-pusher` in the cluster, which pushes once nothing has changed for five minutes. Both pull with rebase, so they converge. A real conflict stops the pusher until someone resolves it.
 

@@ -74,10 +74,14 @@ var askKBTools = []string{"get_context", "decisions_for", "search"}
 // askVaultTools are the vault server's read tools; the read-only server has no other.
 var askVaultTools = []string{"vault_read", "vault_list", "vault_search"}
 
-// ReadOnlyVaultServer is `ki vault mcp --read-only`: the vault's read tools and no vault_write.
-func ReadOnlyVaultServer(kiBinary, vaultDir string) MCPServer {
+// ReadOnlyVaultServer is `ki vault mcp --read-only`: the vault's read tools and
+// no vault_write. With paths it reads only those vault folders, one --path each.
+func ReadOnlyVaultServer(kiBinary, vaultDir string, paths ...string) MCPServer {
 	s := VaultServer(kiBinary, vaultDir)
 	s.Args = append(s.Args, "--read-only")
+	for _, p := range paths {
+		s.Args = append(s.Args, "--path", p)
+	}
 	return s
 }
 
@@ -89,6 +93,9 @@ type AskSetup struct {
 	Brains []string
 	// Vault is the read-only vault server, zero when the machine has no vault.
 	Vault MCPServer
+	// VaultPaths are the vault folders the read-only server is limited to;
+	// empty means the whole vault.
+	VaultPaths []string
 	// CodexVault is whether Codex's own config defines the vault server, which
 	// is then pointed at the read-only one even when no vault is known here.
 	CodexVault bool
@@ -154,7 +161,7 @@ func codexAskConfig(s AskSetup) []string {
 			"-c", fmt.Sprintf("mcp_servers.%s.env_http_headers={ %q = %q }", MCPServerName, "X-Ki-Brains", "KI_BRAINS"),
 		)
 	}
-	readOnly := tomlStrings(ReadOnlyVaultServer("", "").Args)
+	readOnly := tomlStrings(ReadOnlyVaultServer("", "", s.VaultPaths...).Args)
 	switch {
 	case s.Vault.Command != "":
 		c = append(c,

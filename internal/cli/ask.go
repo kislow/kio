@@ -565,11 +565,22 @@ func (a *App) askUnreachable(p *prepared, agent, source string) string {
 	return ""
 }
 
-// askSetup is the read-only setup for the given sources.
+// identityReadPaths are the vault folders the session's identity may read,
+// empty for the whole vault.
+func identityReadPaths(s ki.Session) []string {
+	if s.Identity == nil {
+		return nil
+	}
+	return s.Identity.VaultRead
+}
+
+// askSetup is the read-only setup for the given sources. Skills run on it too
+// (skillAgentSetup), so a read-only skill reads only the identity's vault
+// folders; one that may call vault_write gets the whole vault.
 func (a *App) askSetup(p *prepared, src []string) ki.AskSetup {
-	set := ki.AskSetup{Sources: src, MCPURL: p.url, Brains: p.session.Brains}
+	set := ki.AskSetup{Sources: src, MCPURL: p.url, Brains: p.session.Brains, VaultPaths: identityReadPaths(p.session)}
 	if dir := a.Getenv("KI_VAULT"); dir != "" && a.binary() != "" {
-		set.Vault = ki.ReadOnlyVaultServer(a.binary(), dir)
+		set.Vault = ki.ReadOnlyVaultServer(a.binary(), dir, set.VaultPaths...)
 	}
 	cfg, _ := readOptional(filepath.Join(a.codexHome(), "config.toml")) // no config: nothing to point at the read-only server
 	set.CodexVault = strings.Contains(cfg, ki.CodexVaultTable)

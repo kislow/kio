@@ -40,11 +40,17 @@ func (a *App) queue(ctx context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "run":
+		if err := a.refuseInWorker(); err != nil {
+			return err
+		}
 		if len(args) > 1 {
 			return fail("%s", queueUsage)
 		}
 		return a.queueRun(ctx)
 	case "start":
+		if err := a.refuseInWorker(); err != nil {
+			return err
+		}
 		if len(args) != 2 {
 			return fail("usage: ki queue start <job> (ki queue run calls it)")
 		}

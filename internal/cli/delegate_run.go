@@ -3,9 +3,11 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,7 +53,7 @@ func (a *App) attempt(ctx context.Context, p *prepared, da delegateArgs, prov ki
 		r.Issue = da.issue.String()
 	}
 	if da.resumeOf != nil {
-		r.ResumedFrom, r.Issue = da.resumeOf.ID, da.resumeOf.Issue
+		r.ResumedFrom, r.Issue, r.ScratchBranch = da.resumeOf.ID, da.resumeOf.Issue, da.resumeOf.ScratchBranch
 	}
 	if da.queued != nil {
 		q := da.queued.Queued
@@ -69,8 +71,18 @@ func (a *App) attempt(ctx context.Context, p *prepared, da delegateArgs, prov ki
 	if err := os.MkdirAll(jobDir, 0o700); err != nil {
 		return r, fmt.Errorf("creating %s: %w", jobDir, err)
 	}
-	// A sandboxed worker commits and ki publishes; reviews, asks and skill runs never publish.
-	sandboxed := da.setup == nil && da.brief == nil && !da.readOnly && ki.Sandboxed(prov.Agent, wm.ran())
+	var identity commitIdentity
+	var userBefore localUser
+	if !da.readOnly && p.here.root != "" {
+		if identity, err = resolveCommitIdentity(ctx, p); err != nil {
+			r.Status, r.Detail = ki.JobFailed, err.Error()
+			return r, a.record(jobDir, r)
+		}
+		userBefore = readLocalUser(ctx, p.here.root)
+	}
+	// Reviews, asks and skill runs commit nothing; a sandboxed worker commits and ki publishes.
+	commits := da.setup == nil && da.brief == nil && !da.readOnly
+	sandboxed := commits && ki.Sandboxed(prov.Agent, wm.ran())
 	switch {
 	case da.setup != nil:
 	case da.brief != nil:
@@ -93,6 +105,15 @@ func (a *App) attempt(ctx context.Context, p *prepared, da delegateArgs, prov ki
 	}
 	in.Headless = &ki.Headless{Task: brief, LastMessage: filepath.Join(jobDir, "last.txt"), Instructions: p.instructionsText}
 	launch := ki.BuildLaunch(in)
+	if da.kind == "" && da.setup == nil {
+		launch.Env[ki.JobEnv] = r.ID
+	}
+	if commits {
+		if err := a.installHooks(ctx, dir, jobDir, &launch); err != nil {
+			return r, err
+		}
+	}
+	maps.Copy(launch.Env, identity.env())
 	bin, err := exec.LookPath(launch.Argv[0])
 	if err != nil {
 		return r, fail("agent %q not found on PATH", launch.Argv[0])
@@ -130,6 +151,7 @@ func (a *App) attempt(ctx context.Context, p *prepared, da delegateArgs, prov ki
 		run.events.onEvent = beat.beat
 	}
 	stdout, exit, runErr := a.runWorker(ctx, run)
+	restored := !da.readOnly && p.here.root != "" && restoreLocalUser(context.WithoutCancel(ctx), p.here.root, userBefore)
 	last, _ := readOptional(in.Headless.LastMessage)
 	out := ki.ParseOutput(agent, wm.ran(), stdout, last)
 	if out.QuotaFor == 0 && out.Err == "" && out.Last == "" && exit != 0 {
@@ -149,10 +171,15 @@ func (a *App) attempt(ctx context.Context, p *prepared, da delegateArgs, prov ki
 	}
 	r.Status, r.Detail = classifyWith(out, exit, runErr, parse)
 	if sandboxed {
-		a.publish(ctx, p, &r, publishJob{dir: dir, branch: branch, last: out.Last, issue: r.Issue, draft: da.Draft, token: p.gh, secrets: []string{p.token, p.gh}})
+		a.publish(ctx, p, &r, publishJob{dir: dir, last: out.Last, issue: r.Issue, draft: da.Draft, token: p.gh, secrets: []string{p.token, p.gh}})
 		if ki.AsksBrowserCheck(da.Task) {
 			r.Note = ki.BrowserSkipped
 		}
+	} else if commits {
+		a.guardPushed(ctx, p, &r, dir, branch)
+	}
+	if commits {
+		a.recordBranch(ctx, p, &r, dir)
 	}
 	if run.events != nil {
 		at := run.events.lastEvent()
@@ -174,15 +201,123 @@ func (a *App) attempt(ctx context.Context, p *prepared, da delegateArgs, prov ki
 	if r.Status == ki.JobStalled {
 		a.notifyStalled(ctx, p.machine, r)
 	}
+	if restored {
+		r.Detail = strings.TrimSpace(r.Detail + "; " + identityRestored)
+	}
 	scrubToken(&r, run.logPath, p.token)
+	return r, a.record(jobDir, r)
+}
 
+// record writes a finished job's result.json and its ledger line.
+func (a *App) record(jobDir string, r ki.Result) error {
 	if err := ki.WritePrivate(filepath.Join(jobDir, "result.json"), r); err != nil {
-		return r, fmt.Errorf("recording job %s: %w", r.ID, err)
+		return fmt.Errorf("recording job %s: %w", r.ID, err)
 	}
 	if err := ki.AppendLedger(filepath.Join(a.jobsDir(), ki.LedgerFile), r); err != nil {
-		return r, fmt.Errorf("recording job %s: %w", r.ID, err)
+		return fmt.Errorf("recording job %s: %w", r.ID, err)
 	}
-	return r, nil
+	return nil
+}
+
+// installHooks points the worker's git at the job's hooks (commit-msg strips agent
+// attribution, pre-push runs the leak guard) through GIT_CONFIG_* in its
+// environment; no git config file is written.
+func (a *App) installHooks(ctx context.Context, dir, jobDir string, launch *ki.Launch) error {
+	hooks := filepath.Join(jobDir, "hooks")
+	if err := ki.WriteHooks(hooks, a.binary(), repoHooksDir(ctx, dir)); err != nil {
+		return fail("%v", err)
+	}
+	if launch.Env == nil {
+		launch.Env = map[string]string{}
+	}
+	maps.Copy(launch.Env, ki.HooksEnv(a.Environ(), hooks))
+	return nil
+}
+
+// repoHooksDir is where the repository's own hooks are: its core.hooksPath
+// (relative to the checkout), else the hooks folder of the common git dir.
+func repoHooksDir(ctx context.Context, dir string) string {
+	if path := git(ctx, dir, "config", "--get", "core.hooksPath"); path != "" {
+		if filepath.IsAbs(path) {
+			return path
+		}
+		return filepath.Join(dir, path)
+	}
+	return git(ctx, dir, "rev-parse", "--path-format=absolute", "--git-path", "hooks")
+}
+
+// guardPushed ends a job that reported a pull request, or finished with its
+// branch on origin, as FAILED when what the worker pushed matches the leak
+// guard. The branch is already on GitHub, so the detail keeps the pull request
+// URL for a person to clean up.
+func (a *App) guardPushed(ctx context.Context, p *prepared, r *ki.Result, dir, branch string) {
+	branch = orDefault(git(ctx, dir, "symbolic-ref", "--quiet", "--short", "HEAD"), branch)
+	switch r.Status {
+	case ki.JobPR:
+	case ki.JobDone:
+		if git(ctx, dir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+branch) == "" {
+			return
+		}
+	default:
+		return
+	}
+	match := leakInWork(ctx, p.here.root, dir, branch)
+	if match == "" {
+		return
+	}
+	detail := "leak guard: " + match
+	if r.Status == ki.JobPR {
+		detail += " (" + r.Detail + ")"
+	}
+	r.Status, r.Detail = ki.JobFailed, detail
+}
+
+// recordBranch sets r.Branch to the branch that holds the job's work, which a
+// worker may have renamed from the one ki created: the head of its pull request
+// when it ended PR, else the branch the worktree is on. The name ki created
+// stays in ScratchBranch when it differs.
+func (a *App) recordBranch(ctx context.Context, p *prepared, r *ki.Result, dir string) {
+	created := r.Branch
+	current := git(ctx, dir, "symbolic-ref", "--quiet", "--short", "HEAD")
+	head := ""
+	if r.Status == ki.JobPR {
+		head = a.pullHead(ctx, p.gh, r.Detail)
+	}
+	if r.Branch = orDefault(head, orDefault(current, created)); r.Branch != created && r.ScratchBranch == "" {
+		r.ScratchBranch = created
+	}
+}
+
+// pullHead is the head branch of the pull request at url, "" when gh cannot read it.
+func (a *App) pullHead(ctx context.Context, token, url string) string {
+	raw, err := a.ghRunner()(ctx, token, nil, "pr", "view", url, "--json", "headRefName")
+	if err != nil {
+		return ""
+	}
+	var pr struct {
+		Head string `json:"headRefName"`
+	}
+	if json.Unmarshal(raw, &pr) != nil {
+		return ""
+	}
+	return pr.Head
+}
+
+// leakInWork is the first leak guard match in the branch name, the messages of
+// the commits it has since its base and any extra text headed for GitHub.
+func leakInWork(ctx context.Context, root, dir, branch string, extra ...string) string {
+	texts := []string{branch}
+	if _, start := workStart(ctx, root, dir); start != "" {
+		if log := git(ctx, dir, "log", "--format=%B%x00", start+"..HEAD"); log != "" {
+			texts = append(texts, strings.Split(log, "\x00")...)
+		}
+	}
+	for _, t := range append(texts, extra...) {
+		if m := ki.LeakMatch(t); m != "" {
+			return m
+		}
+	}
+	return ""
 }
 
 // tokenRedacted replaces the knowledge base token wherever a worker printed it.
