@@ -34,8 +34,10 @@ from .errors import ConfigError
 
 logger = logging.getLogger(__name__)
 
+# Same pattern as NormalizeRepo in Go, SSH host aliases (`git@github.com-work:`) included.
 _GITHUB = re.compile(
-    r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([\w.-]+)/([\w.-]+?)(?:\.git)?/?$"
+    r"^(?:https://github\.com/|git@github\.com(?:-[\w.-]+)?:|ssh://git@github\.com(?:-[\w.-]+)?/)"
+    r"([\w.-]+)/([\w.-]+?)(?:\.git)?/?$"
 )
 
 Text = Annotated[str, StringConstraints(min_length=1)]

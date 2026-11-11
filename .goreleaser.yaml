@@ -1,4 +1,4 @@
-# Release binaries for the ki CLI: git tag v0.1.0 && git push --tags
+# Release binaries for ki and ki-mcp: git tag v0.1.0 && git push --tags
 version: 2
 project_name: kio
 
@@ -11,9 +11,18 @@ builds:
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags: ["-s -w -X main.version={{ .Version }}"]
+  - id: ki-mcp
+    main: ./cmd/ki-mcp
+    binary: ki-mcp
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{ .Version }}"]
 
 archives:
-  - formats: [tar.gz]
+  - ids: [ki, ki-mcp]
+    formats: [tar.gz]
     name_template: "kio_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files: [LICENSE, NOTICE, README.md]
 

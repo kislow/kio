@@ -177,10 +177,19 @@ func (a *App) Run(ctx context.Context, args []string) error {
 			fmt.Fprintln(a.Stderr, "ki: `ki standup` is now `ki recap`; the old name will be removed in a later release")
 			return a.recap(ctx, args[1:])
 		case "update":
+			if done, err := a.bare("update", args[1:]); done {
+				return err
+			}
 			return a.update(ctx)
 		case "doctor":
+			if done, err := a.bare("doctor", args[1:]); done {
+				return err
+			}
 			return a.doctor(ctx)
 		case "cursor":
+			if done, err := a.bare("cursor", args[1:]); done {
+				return err
+			}
 			return a.cursor(ctx)
 		case "setup":
 			return a.setup(ctx, args[1:])
@@ -220,6 +229,29 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		}
 	}
 	return a.run(ctx, args)
+}
+
+// bare handles the arguments of a command that takes none: help prints the
+// command's usage line, anything else is refused before the command runs.
+func (a *App) bare(name string, args []string) (bool, error) {
+	if len(args) == 0 {
+		return false, nil
+	}
+	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		fmt.Fprintln(a.Stdout, usageLine(name))
+		return true, nil
+	}
+	return true, fail("ki %s takes no arguments, got %q", name, strings.Join(args, " "))
+}
+
+// usageLine is the line of `ki help` for one core command.
+func usageLine(name string) string {
+	for line := range strings.SplitSeq(coreUsage, "\n") {
+		if t := strings.TrimSpace(line); t == "ki "+name || strings.HasPrefix(t, "ki "+name+" ") {
+			return t
+		}
+	}
+	return "ki " + name
 }
 
 // --- environment --------------------------------------------------------------

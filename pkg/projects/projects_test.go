@@ -114,10 +114,25 @@ func TestNormalizeRepo(t *testing.T) {
 		"https://github.com/org/repo",
 		"https://github.com/org/repo.git",
 		"ssh://git@github.com/org/repo.git",
+		"git@github.com-work:org/repo.git",
+		"ssh://git@github.com-work.2/org/repo",
 	} {
 		got, err := NormalizeRepo(in)
 		if err != nil || got != "https://github.com/org/repo" {
 			t.Errorf("%s: got %q, %v", in, got, err)
+		}
+	}
+}
+
+func TestNormalizeRepoRefusesOtherHosts(t *testing.T) {
+	for _, in := range []string{
+		"git@gitlab.com:org/repo.git",
+		"git@github.company.com:org/repo.git",
+		"git@github.com-:org/repo.git",
+		"https://github.com-work/org/repo",
+	} {
+		if got, err := NormalizeRepo(in); err == nil {
+			t.Errorf("%s: want refusal, got %q", in, got)
 		}
 	}
 }

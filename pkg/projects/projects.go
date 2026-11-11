@@ -22,7 +22,9 @@ import (
 // ErrInvalid wraps every validation failure.
 var ErrInvalid = errors.New("invalid projects file")
 
-var githubRE = regexp.MustCompile(`^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([\w.-]+)/([\w.-]+?)(?:\.git)?/?$`)
+// githubRE also takes an SSH host alias after github.com (`git@github.com-work:`),
+// the usual way to keep one key per GitHub account in ~/.ssh/config.
+var githubRE = regexp.MustCompile(`^(?:https://github\.com/|git@github\.com(?:-[\w.-]+)?:|ssh://git@github\.com(?:-[\w.-]+)?/)([\w.-]+)/([\w.-]+?)(?:\.git)?/?$`)
 
 // NormalizeRepo returns the canonical lower-case https URL for any GitHub remote form.
 func NormalizeRepo(url string) (string, error) {

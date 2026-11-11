@@ -13,7 +13,7 @@ VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || ech
 
 .PHONY: help laptop install-cli skills uninstall-skills doctor diagram \
         test test-go test-kb test-diagram test-packaging lint lint-go lint-py \
-        validate-projects manifests check-manifests export-check publish-export licences snapshot try try-restore
+        validate-projects manifests check-manifests export-check publish-export licences snapshot demo try try-restore
 
 help: ## list targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -99,15 +99,21 @@ check-manifests: ## verify graphs, sensitivity, images and default-deny in the r
 export-check: ## export the public tree to a temp dir, check what it must not contain, build and test it
 	scripts/publish/export-check.sh
 
-publish-export: ## export a release as a one-commit snapshot: make publish-export REF=<tag> OUT=<dir> (needs PUBLISH_AUTHOR_NAME and PUBLISH_AUTHOR_EMAIL)
-	@[ -n "$(OUT)" ] || { echo "usage: make publish-export [REF=<tag|sha>] OUT=<dir>" >&2; exit 2; }
-	scripts/publish/export.sh $(if $(REF),--ref "$(REF)") --out "$(OUT)"
+publish-export: ## export a release: make publish-export [REF=<tag>] OUT=<dir> or ONTO=<checkout> (needs PUBLISH_AUTHOR_NAME and PUBLISH_AUTHOR_EMAIL)
+	@[ -n "$(OUT)$(ONTO)" ] || { echo "usage: make publish-export [REF=<tag|sha>] OUT=<dir> or ONTO=<checkout>" >&2; exit 2; }
+	@[ -z "$(OUT)" ] || [ -z "$(ONTO)" ] || { echo "pass OUT=<dir> or ONTO=<checkout>, not both" >&2; exit 2; }
+	scripts/publish/export.sh $(if $(REF),--ref "$(REF)") $(if $(OUT),--out "$(OUT)") $(if $(ONTO),--onto "$(ONTO)")
 
 licences: ## list the licence of every dependency (Go, kb/, diagram/) and fail on GPL, AGPL, LGPL, SSPL, BUSL, unknown or custom ones not in .licence-allow.txt
 	scripts/licences.sh
 
 snapshot: ## build ki release binaries locally into dist/ (needs goreleaser)
 	goreleaser build --snapshot --clean
+
+demo: ## re-record docs/demo/demo.gif and demo.txt with VHS from a scripted, fictional world (needs vhs)
+	@command -v vhs >/dev/null || { echo "vhs not found: brew install vhs" >&2; exit 1; }
+	@dir="$$(mktemp -d)" && trap 'rm -rf "$${dir:?}"' EXIT && mkdir "$$dir/bin" && \
+	  go build -trimpath -o "$$dir/bin/ki" ./cmd/ki && DEMO_DIR="$$dir" vhs docs/demo/demo.tape
 
 # --- cluster -------------------------------------------------------------------
 

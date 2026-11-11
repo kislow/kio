@@ -1,6 +1,8 @@
 # kio
 
-kio starts the coding-agent CLIs you already pay for (Claude Code, Codex, Cursor and agy) in the right repository, as the right GitHub identity, with the same instructions whatever the vendor. The command is `ki`. With an optional knowledge base, each session also gets a context pack scoped to its repo. `ki` can hand a task to any of these agents headless, each job in its own git worktree, and when one vendor runs out of quota it continues on the next.
+kio (*künstliche Intelligenz Orchestrator*, German for AI orchestrator) starts the coding-agent CLIs you already pay for (Claude Code, Codex, Cursor and agy) in the right repository, as the right GitHub identity, with the same instructions whatever the vendor. The command is `ki`. With an optional knowledge base, each session also gets a context pack scoped to its repo. `ki` can hand a task to any of these agents headless, each job in its own git worktree, and when one vendor runs out of quota it continues on the next.
+
+![ki delegate running a task and listing the job](docs/demo/demo.gif)
 
 **Status:** pre-1.0. Built for macOS and Linux. Without a knowledge base, `ki` still starts sessions and runs delegated jobs with identity and instructions only.
 

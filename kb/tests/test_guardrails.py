@@ -85,6 +85,32 @@ def test_projects_file_rejects(bad):
         cfg(bad)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "git@github.com:Org/Repo.git",
+        "ssh://git@github.com/org/repo.git",
+        "git@github.com-work:org/repo.git",
+        "ssh://git@github.com-work.2/org/repo",
+    ],
+)
+def test_normalize_repo_forms(url):
+    assert projects.normalize_repo(url) == "https://github.com/org/repo"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "git@gitlab.com:org/repo.git",
+        "git@github.com-:org/repo.git",
+        "https://github.com-work/org/repo",
+    ],
+)
+def test_normalize_repo_refuses_other_hosts(url):
+    with pytest.raises(ConfigError):
+        projects.normalize_repo(url)
+
+
 def test_graph_names_are_graphiti_safe():
     assert brains.graph_for("cortex") == "cortex"
     assert brains.graph_for("acme") == "brain-acme"
