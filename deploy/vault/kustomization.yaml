@@ -23,4 +23,4 @@ configMapGenerator:
 images:
   - name: kio-vault
     newName: registry.example.com/kio-vault
-    newTag: 0.1.0 # x-release-please-version
+    newTag: 0.2.0 # x-release-please-version

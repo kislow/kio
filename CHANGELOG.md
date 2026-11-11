@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/kislow/kio/compare/v0.1.0...v0.2.0) (2026-11-11)
+
+
+### Features
+
+* ship ki-mcp in the release archives and add a README demo ([a31f765](https://github.com/kislow/kio/commit/a31f765104805a463f7a9d55429142713569f075))
+
 ## 0.1.0 (2026-11-10)
 
 
