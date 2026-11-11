@@ -251,6 +251,26 @@ func TestHelpAndVersion(t *testing.T) {
 	}
 }
 
+func TestBareCommandsPrintHelpOrRefuseArguments(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"update", "doctor", "cursor"} {
+		for _, flag := range []string{"help", "-h", "--help"} {
+			e := newEnv(t, "")
+			if err := e.app.Run(context.Background(), []string{name, flag}); err != nil {
+				t.Fatalf("%s %s: %v", name, flag, err)
+			}
+			if got := e.out.String(); !strings.HasPrefix(got, "ki "+name) || strings.Count(got, "\n") != 1 {
+				t.Fatalf("%s %s printed %q, want its usage line", name, flag, got)
+			}
+		}
+		e := newEnv(t, "")
+		err := e.app.Run(context.Background(), []string{name, "--force"})
+		if !isUserError(err) || !strings.Contains(err.Error(), "takes no arguments") || e.out.Len() != 0 {
+			t.Fatalf("%s --force: want a refusal before running, got %v, output %q", name, err, e.out)
+		}
+	}
+}
+
 func countKey(envv []string, key string) int {
 	n := 0
 	for _, kv := range envv {

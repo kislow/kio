@@ -94,11 +94,15 @@ jobs:
         run: go run ./internal/tools/covercheck -min 80 cover.out pkg/scope pkg/config pkg/projects internal/ki internal/server internal/pack internal/cli internal/vault internal/redact internal/standup
       - name: Validate projects.yaml
         run: go run ./cmd/ki validate deploy/config/projects.yaml
-      - name: ki builds for every release target
+      - name: ki and ki-mcp build for every release target
         run: |
           for t in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
-            GOOS=${t%/*} GOARCH=${t#*/} CGO_ENABLED=0 go build -o /dev/null ./cmd/ki
+            for c in ki ki-mcp; do
+              GOOS=${t%/*} GOARCH=${t#*/} CGO_ENABLED=0 go build -o /dev/null "./cmd/${c}"
+            done
           done
+      - name: Render the Homebrew formula from a fixture
+        run: scripts/homebrew-formula_test.sh
 
   kb:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
