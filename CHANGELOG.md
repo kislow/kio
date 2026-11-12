@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/kislow/kio/compare/v0.2.1...v0.2.2) (2026-11-12)
+
+
+### Bug Fixes
+
+* **delegate:** branch type from the issue type, Codex network access, per-section scanning ([#7](https://github.com/kislow/kio/issues/7)) ([2729c79](https://github.com/kislow/kio/commit/2729c791154795ae9edf184035529d29063310c7))
+
 ## [0.2.1](https://github.com/kislow/kio/compare/v0.2.0...v0.2.1) (2026-11-11)
 
 
