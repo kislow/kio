@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/kislow/kio/compare/v0.2.0...v0.2.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **delegate:** guard worker commits and pushes, worker identity, renamed branches ([#5](https://github.com/kislow/kio/issues/5)) ([b8d0f33](https://github.com/kislow/kio/commit/b8d0f331437687edd65de95cc45654022076f9c1))
+
 ## [0.2.0](https://github.com/kislow/kio/compare/v0.1.0...v0.2.0) (2026-11-11)
 
 
