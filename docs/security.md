@@ -45,7 +45,7 @@ flowchart TB
 | Brain families (`client-*`) | `pkg/scope`, `kb/src/ki_kb/brains.py` | Members are sensitive by name and never in a default scope; a grant for one client does not cover another |
 | Brain wiring | `deploy/check.py` in CI | CI fails if a brain's sensitivity, backend and allowed graphs disagree |
 | Allowed graphs | `kb/src/ki_kb/settings.py` | `GraphNotAllowedError`, 403 from kb-query |
-| Pre-ingest scanner | `kb/src/ki_kb/scanner.py` | Document skipped, reported by count only for sensitive projects |
+| Pre-ingest scanner | `kb/src/ki_kb/scanner.py` | Matching section skipped; the rest of the file is ingested. Reported by count only for sensitive projects |
 | No symlinks out of a clone | `collect_docs` in `kb/src/ki_kb/activities.py` | Symlinked files are skipped, so `docs/x.md -> /proc/self/environ` reads nothing |
 | Fixed-message errors | `_safe_error` in `kb/src/ki_kb/activities.py` | Temporal sees project, error type and (non-sensitive only) path; the rest stays in the pod log |
 | Stranded graphs | `load_projects` in `kb/src/ki_kb/activities.py`, `ki_kb.admin forget-stranded` | Every sync stops until a graph that is no longer served is cleaned up |
@@ -66,7 +66,7 @@ A ki-mcp consumer, such as a dashboard or an agent runner, runs in namespace `ha
 
 ## What the scanner matches
 
-The pre-ingest scanner (`kb/src/ki_kb/scanner.py`) is a guardrail, not a DLP product. A document with any hit is rejected whole and reported by path. Each rule says what it flags and what it deliberately leaves alone, because every false positive costs a document that never reaches the brain.
+The pre-ingest scanner (`kb/src/ki_kb/scanner.py`) is a guardrail, not a DLP product. Each section is scanned and only a matching section is rejected, and it is reported by its section key. Each rule says what it flags and what it deliberately leaves alone, because every false positive costs a section that never reaches the brain.
 
 | Rule | Flags | Deliberately does not match |
 | --- | --- | --- |

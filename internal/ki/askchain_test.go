@@ -138,6 +138,34 @@ func TestCodexResumeFlags(t *testing.T) {
 	}
 }
 
+func TestCodexAutoArgvFreshAndResumed(t *testing.T) {
+	t.Parallel()
+	modeArgs, _, err := ModeArgs("codex", ModeAuto, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &Headless{Task: "task"}
+	const network = "sandbox_workspace_write.network_access=true"
+
+	fresh := BuildLaunch(LaunchInput{Agent: "codex", ModeArgs: modeArgs, Headless: h}).Argv
+	if !slices.Equal(fresh[:5], []string{"codex", "exec", "--approve-for-me", "-c", network}) || slices.Contains(fresh, "resume") {
+		t.Errorf("fresh auto argv %v", fresh)
+	}
+
+	resumed := BuildLaunch(LaunchInput{Agent: "codex", ModeArgs: modeArgs, Resume: "s1", Headless: h}).Argv
+	if !slices.Equal(resumed[:4], []string{"codex", "exec", "resume", "s1"}) {
+		t.Fatalf("resumed auto argv %v", resumed)
+	}
+	if slices.Contains(resumed, "--approve-for-me") || slices.Contains(resumed, "--sandbox") {
+		t.Errorf("resume must not take the flags it rejects: %v", resumed)
+	}
+	for _, want := range []string{network, `approval_policy="on-request"`, `approvals_reviewer="auto_review"`, `sandbox_mode="workspace-write"`} {
+		if !slices.Contains(resumed, want) {
+			t.Errorf("resumed auto argv %v lacks %s", resumed, want)
+		}
+	}
+}
+
 func TestAppendLedgerLeavesTheAskRecordInTheResult(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), LedgerFile)

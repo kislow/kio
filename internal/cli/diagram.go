@@ -54,7 +54,7 @@ func (a *App) diagram(ctx context.Context, args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, diagramTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, t.node, append([]string{t.script}, args...)...) // #nosec G204 -- our own script; arguments are the user's
+	cmd := exec.CommandContext(ctx, t.node, append([]string{t.script}, args...)...) // #nosec G204 G702 -- our own script; arguments are the user's
 	cmd.Dir = a.Dir
 	cmd.Stdout, cmd.Stderr = a.Stdout, a.Stderr
 	err = cmd.Run()

@@ -5,13 +5,19 @@ import "testing"
 func TestIssueBranch(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name, title, want string
+		name, title, issueType, want string
 	}{
 		{name: "feat with scope", title: "feat(alerting): route API Gateway route-5xx alarms per owning team", want: "feat/7-route-api-gateway-route-5xx-alarms-per"},
 		{name: "fix", title: "fix: node memory alarm flaps", want: "fix/7-node-memory-alarm-flaps"},
 		{name: "breaking", title: "feat!: drop the old flag", want: "feat/7-drop-the-old-flag"},
 		{name: "upper-case prefix", title: "Docs(skills): ready PRs", want: "docs/7-ready-prs"},
 		{name: "no prefix", title: "Sentry Observability: docs and runbooks", want: "chore/7-sentry-observability-docs-and-runbooks"},
+		{name: "bug native type", title: "The cache breaks", issueType: "Bug", want: "fix/7-the-cache-breaks"},
+		{name: "case-insensitive bug type", title: "The cache breaks", issueType: "bUG", want: "fix/7-the-cache-breaks"},
+		{name: "feature native type", title: "Add export", issueType: "Feature", want: "feat/7-add-export"},
+		{name: "task native type", title: "Add export", issueType: "Task", want: "chore/7-add-export"},
+		{name: "prefix wins", title: "docs: repair guide", issueType: "Bug", want: "docs/7-repair-guide"},
+		{name: "other native type", title: "Do the work", issueType: "Epic", want: "chore/7-do-the-work"},
 		{name: "unknown prefix", title: "wip: something", want: "chore/7-wip-something"},
 		{name: "punctuation only", title: "feat: ???", want: "feat/7"},
 		{name: "empty", title: "", want: "chore/7"},
@@ -20,7 +26,7 @@ func TestIssueBranch(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := IssueBranch(7, tt.title); got != tt.want {
+			if got := IssueBranch(7, tt.title, tt.issueType); got != tt.want {
 				t.Fatalf("IssueBranch(%q) = %q, want %q", tt.title, got, tt.want)
 			}
 		})

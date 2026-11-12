@@ -67,19 +67,26 @@ type issueHold struct {
 }
 
 type issueSnap struct {
-	ref     ki.IssueRef
-	repoID  string
-	issueID string
-	labelID string
-	title   string
-	body    string
-	state   string
-	onIssue bool
+	ref      ki.IssueRef
+	repoID   string
+	issueID  string
+	labelID  string
+	title    string
+	body     string
+	state    string
+	onIssue  bool
+	typeName string
 }
 
-// Claim labels ref. branch, when empty, is name(title) once the issue is read,
-// so the worker's branch is named from the title.
-func (c *issuesClient) Claim(ctx context.Context, ref ki.IssueRef, branch string, steal bool, name func(title string) string) (issueHold, error) {
+type graphqlErrors []string
+
+func (e graphqlErrors) Error() string {
+	return "GitHub: " + strings.Join(e, "; ")
+}
+
+// Claim labels ref. When branch is empty, name uses the issue title and native
+// type to choose the worker's branch after the issue is read.
+func (c *issuesClient) Claim(ctx context.Context, ref ki.IssueRef, branch string, steal bool, name func(title, issueType string) string) (issueHold, error) {
 	snap, err := c.load(ctx, ref)
 	if errors.Is(err, errIsPullRequest) {
 		return issueHold{}, fail("%s", ki.PullRequestRefusal(ref.Number))
@@ -101,7 +108,7 @@ func (c *issuesClient) Claim(ctx context.Context, ref ki.IssueRef, branch string
 		return issueHold{}, fmt.Errorf("adding the %s label on %s: %w", ki.AgentWorkingLabel, ref, err)
 	}
 	if branch == "" && name != nil {
-		branch = name(snap.title)
+		branch = name(snap.title, snap.typeName)
 	}
 	vars := map[string]any{"issueId": snap.issueID, "labelId": labelID}
 	if err := c.do(ctx, claimMutation, vars, nil); err != nil {
@@ -129,10 +136,13 @@ func (c *issuesClient) load(ctx context.Context, ref ki.IssueRef) (issueSnap, er
 				ID string `json:"id"`
 			} `json:"label"`
 			Issue *struct {
-				ID     string `json:"id"`
-				Title  string `json:"title"`
-				Body   string `json:"body"`
-				State  string `json:"state"`
+				ID        string `json:"id"`
+				Title     string `json:"title"`
+				Body      string `json:"body"`
+				State     string `json:"state"`
+				IssueType *struct {
+					Name string `json:"name"`
+				} `json:"issueType"`
 				Labels struct {
 					Nodes []struct {
 						Name string `json:"name"`
@@ -158,13 +168,16 @@ func (c *issuesClient) load(ctx context.Context, ref ki.IssueRef) (issueSnap, er
 		}
 		return issueSnap{}, err
 	}
-	if err != nil {
+	if err != nil && !partialTypeOnly(err, resp.Repository.Issue.ID) {
 		return issueSnap{}, err
 	}
 	iss := resp.Repository.Issue
 	snap := issueSnap{
 		ref: ref, repoID: resp.Repository.ID, issueID: iss.ID, title: iss.Title, body: iss.Body,
 		state: iss.State,
+	}
+	if iss.IssueType != nil {
+		snap.typeName = iss.IssueType.Name
 	}
 	if resp.Repository.Label != nil {
 		snap.labelID = resp.Repository.Label.ID
@@ -175,6 +188,24 @@ func (c *issuesClient) load(ctx context.Context, ref ki.IssueRef) (issueSnap, er
 		}
 	}
 	return snap, nil
+}
+
+// partialTypeOnly reports whether the only GraphQL errors are about issueType
+// while the issue itself came back, so the title can still name the branch.
+func partialTypeOnly(err error, issueID string) bool {
+	if err == nil || issueID == "" {
+		return false
+	}
+	var graphErrors graphqlErrors
+	if !errors.As(err, &graphErrors) || len(graphErrors) == 0 {
+		return false
+	}
+	for _, message := range graphErrors {
+		if !strings.Contains(strings.ToLower(message), "issuetype") {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *issuesClient) ensureLabel(ctx context.Context, snap issueSnap) (string, error) {
@@ -220,7 +251,7 @@ func issueQuery() string {
     label(name:%q){id}
     issueOrPullRequest(number:$number){__typename}
     issue(number:$number){
-      id title body state
+      id title body state issueType{name}
       labels(first:20){nodes{name}}
     }
   }
@@ -246,14 +277,14 @@ func (c *issuesClient) do(ctx context.Context, query string, vars map[string]any
 	}
 	ctx, cancel := context.WithTimeout(ctx, githubTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(payload)) // #nosec G704 -- the endpoint is GitHub's, or the one the user set in KI_GITHUB_GRAPHQL_URL
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "ki-delegate")
-	resp, err := c.http.Do(req)
+	resp, err := c.http.Do(req) // #nosec G704 -- request built above for the user's own endpoint
 	if err != nil {
 		return fmt.Errorf("calling GitHub: %w", err)
 	}
@@ -284,7 +315,7 @@ func (c *issuesClient) do(ctx context.Context, query string, vars map[string]any
 		for i, e := range env.Errors {
 			msgs[i] = e.Message
 		}
-		return fmt.Errorf("GitHub: %s", strings.Join(msgs, "; "))
+		return graphqlErrors(msgs)
 	}
 	return nil
 }
@@ -336,7 +367,9 @@ func (a *App) claimIssue(ctx context.Context, p *prepared, da delegateArgs, id, 
 	if err != nil {
 		return nil, "", err
 	}
-	name := func(title string) string { return freeBranch(ctx, p.here.root, ki.IssueBranch(ref.Number, title), id) }
+	name := func(title, issueType string) string {
+		return freeBranch(ctx, p.here.root, ki.IssueBranch(ref.Number, title, issueType), id)
+	}
 	held, err := client.Claim(ctx, ref, branch, da.Steal, name)
 	if err != nil {
 		var ue UserError

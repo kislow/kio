@@ -89,6 +89,7 @@ class FakeGraphiti:
     # Only these episode names fail; empty means all of them.
     fail_names: set[str] = field(default_factory=set)
     tried: list[str] = field(default_factory=list)
+    bodies: list[str] = field(default_factory=list)
     fail_bulk: bool = False
     fail_bulk_with: list[Exception] = field(default_factory=list)
     drop_from_bulk: str | None = None
@@ -100,6 +101,7 @@ class FakeGraphiti:
     async def add_episode(self, name, episode_body, **kw):
         self.started.set()
         self.tried.append(name)
+        self.bodies.append(episode_body)
         if self.wait_for:
             await asyncio.wait_for(self.wait_for.wait(), timeout=2)
         if self.fail_with and (not self.fail_names or name in self.fail_names):
@@ -109,6 +111,7 @@ class FakeGraphiti:
 
     async def add_episode_bulk(self, episodes, group_id, **kw):
         self.bulks.append([e.name for e in episodes])
+        self.bodies.extend(e.content for e in episodes)
         if self.fail_bulk_with:
             raise self.fail_bulk_with.pop(0)
         if self.fail_bulk:
@@ -810,8 +813,32 @@ FAKE_KEY = "AKIAIOSFODNN7EXAMPLE"
 
 
 def _write_rejected_doc(world) -> None:
-    # Three sections, so the document is rejected three times but reported once.
+    # Three sections. Only the middle one holds a key, so only that section is rejected.
     (world.repo / "docs" / "b.md").write_text(f"# B\nbeta\n## Keys\nid {FAKE_KEY}\n## More\nmore\n")
+
+
+FLAGGED = "docs/b.md#B > Keys"
+CLEAN = ["docs/a.md#A", "docs/b.md#B", "docs/b.md#B > More"]
+
+
+async def test_key_in_a_bodiless_title_rejects_without_naming_it(world, caplog):
+    # The title heading has no text of its own, so it is in no section's text,
+    # only in the heading path every section below it sends to Graphiti.
+    (world.repo / "docs" / "c.md").write_text(f"# Ops {FAKE_KEY}\n## Setup\nrun make\n")
+    voice = world.graphitis.setdefault("brain-voice", FakeGraphiti("brain-voice"))
+
+    caplog.set_level("INFO", logger="ki_kb.activities")
+    result = await activities.sync_repo(activities.ProjectRef(name="notes"))
+
+    assert result.rejected == 1
+    assert result.rejected_paths == ["docs/c.md"]
+    assert result.rejected_rules == {"docs/c.md": ["aws-access-key"]}
+    assert not any(k.startswith("docs/c.md") for k in world.store.data["notes"])
+    assert not any("c.md" in name for name in voice.tried)
+    assert FAKE_KEY not in json.dumps(result.__dict__)
+    assert not any(FAKE_KEY in str(r.__dict__) for r in caplog.records)
+    [record] = [r for r in caplog.records if r.message == "document rejected by scanner"]
+    assert (record.path, record.rules) == ("docs/c.md", {"aws-access-key": [0]})
 
 
 def _rejections(project: str, rule: str) -> float:
@@ -824,16 +851,18 @@ async def test_rejection_reports_rules_and_lines_without_the_match(world, caplog
     caplog.set_level("INFO", logger="ki_kb.activities")
     result = await activities.sync_repo(activities.ProjectRef(name="notes"))
 
-    assert result.rejected == 3
-    assert result.rejected_rules == {"docs/b.md": ["aws-access-key"]}
+    assert result.rejected == 1
+    assert result.rejected_paths == ["docs/b.md"]
+    assert result.rejected_rules == {FLAGGED: ["aws-access-key"]}
     assert result.rejected_rule_counts == {"aws-access-key": 1}
     assert _rejections("notes", "aws-access-key") == before + 1
+    assert sorted(world.store.data["notes"]) == CLEAN
 
     [record] = [r for r in caplog.records if r.message == "document rejected by scanner"]
     assert (record.project, record.path, record.rules) == (
         "notes",
-        "docs/b.md",
-        {"aws-access-key": [4]},
+        FLAGGED,
+        {"aws-access-key": [2]},
     )
     seen = [FAKE_KEY in str(r.__dict__) for r in caplog.records]
     assert not any(seen)
@@ -852,8 +881,42 @@ async def test_sensitive_rejection_reports_rule_counts_without_the_path(world, m
     assert result.rejected_rule_counts == {"aws-access-key": 1}
     [record] = [r for r in caplog.records if r.message == "document rejected by scanner"]
     assert not hasattr(record, "path")
-    assert record.rules == {"aws-access-key": [4]}
+    assert record.rules == {"aws-access-key": [2]}
     assert "docs/b.md" not in str(record.__dict__) and FAKE_KEY not in str(record.__dict__)
+
+
+async def test_flagged_section_rejects_until_the_line_is_fixed(world):
+    _write_rejected_doc(world)
+    ref = activities.ProjectRef(name="notes")
+    voice = world.graphitis.setdefault("brain-voice", FakeGraphiti("brain-voice"))
+
+    first = await activities.sync_repo(ref)
+    assert (first.added, first.rejected, first.rejected_paths) == (3, 1, ["docs/b.md"])
+    assert sorted(world.store.data["notes"]) == CLEAN
+    assert sorted(voice.added) == [f"notes/{path}" for path in CLEAN]
+    assert f"notes/{FLAGGED}" not in voice.tried
+    assert FAKE_KEY not in "".join(voice.bodies)
+    assert FAKE_KEY not in json.dumps(first.__dict__)
+    # A rejection is not recorded, so it does not hold the marker. The same commit is skipped.
+    assert "notes" in world.store.markers
+
+    voice.added.clear()
+    voice.tried.clear()
+    voice.bodies.clear()
+    world.calls.clear()
+    again = await activities.sync_repo(ref)
+    assert again.skipped is True
+    assert world.calls == ["ls-remote"]
+    assert voice.added == [] and voice.tried == []
+    assert FLAGGED not in world.store.data["notes"]
+
+    (world.repo / "docs" / "b.md").write_text("# B\nbeta\n## Keys\nid acme\n## More\nmore\n")
+    fixed = await activities.sync_repo(ref)
+    assert (fixed.added, fixed.rejected, fixed.unchanged) == (1, 0, 3)
+    assert voice.added == [f"notes/{FLAGGED}"]
+    assert FLAGGED in world.store.data["notes"]
+    assert "acme" in "".join(voice.bodies) and FAKE_KEY not in "".join(voice.bodies)
+    assert "notes" in world.store.markers
 
 
 async def test_graph_outside_allowed_graphs_is_refused(world):

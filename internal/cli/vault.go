@@ -233,7 +233,7 @@ func rebaseInProgress(ctx context.Context, dir string) bool {
 func gitRun(ctx context.Context, dir string, timeout time.Duration, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- fixed binary, arguments from ki itself
+	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 G702 -- fixed binary, arguments from ki itself
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.CombinedOutput()

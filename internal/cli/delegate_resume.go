@@ -92,9 +92,9 @@ func (a *App) delegateResume(ctx context.Context, args []string, queued *ki.Queu
 // contract ki appended.
 func (a *App) jobTask(id string) (task string, draft bool, err error) {
 	dir := filepath.Join(a.jobsDir(), id)
-	brief, berr := os.ReadFile(filepath.Join(dir, "brief.md")) // #nosec G304 -- a checked job id under the jobs folder
+	brief, berr := os.ReadFile(filepath.Join(dir, "brief.md")) // #nosec G304 G703 -- a checked job id under the jobs folder
 	draft = berr == nil && strings.Contains(string(brief), "`gh pr create --draft`")
-	if data, err := os.ReadFile(filepath.Join(dir, taskFile)); err == nil { // #nosec G304 -- as above
+	if data, err := os.ReadFile(filepath.Join(dir, taskFile)); err == nil { // #nosec G304 G703 -- as above
 		return strings.TrimSpace(string(data)), draft, nil
 	}
 	if berr != nil {

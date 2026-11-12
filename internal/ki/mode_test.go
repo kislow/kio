@@ -137,7 +137,7 @@ func TestLaunchArgvPerMode(t *testing.T) {
 		{"agy", ModeEdits, []string{"agy", "--mode", "accept-edits", "hi"}, nil},
 		{"aider", ModeEdits, nil, ErrModeUnsupported},
 		{"codex", ModeAsk, []string{"codex", "--sandbox", "workspace-write", "--ask-for-approval", "on-request", "hi"}, nil},
-		{"codex", ModeAuto, []string{"codex", "--approve-for-me", "hi"}, nil},
+		{"codex", ModeAuto, []string{"codex", "--approve-for-me", "-c", "sandbox_workspace_write.network_access=true", "hi"}, nil},
 		{"codex", ModeSkip, []string{"codex", "--dangerously-bypass-approvals-and-sandbox", "hi"}, nil},
 		{"cursor-agent", ModeAsk, []string{"cursor-agent", "hi"}, nil},
 		{"cursor-agent", ModeAuto, []string{"cursor-agent", "--sandbox", "enabled", "hi"}, nil},

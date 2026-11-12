@@ -2,7 +2,7 @@
 
 This is a guardrail, not a DLP product: it catches card numbers (Luhn-valid runs
 written the way cards are), Emirates IDs and common secret formats. A flagged
-document fails the ingest for that file and is reported by path only.
+section fails the ingest for that section and is reported by its key only.
 """
 
 from __future__ import annotations

@@ -272,7 +272,7 @@ func usageLine(name string) string {
 func git(ctx context.Context, dir string, args ...string) string {
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- fixed binary, arguments from ki itself
+	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 G702 -- fixed binary, arguments from ki itself
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {

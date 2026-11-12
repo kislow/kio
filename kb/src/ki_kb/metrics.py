@@ -53,7 +53,7 @@ INGEST_DOCUMENTS = Counter(
 )
 INGEST_REJECTIONS = Counter(
     "ki_ingest_rejections",
-    "Documents the scanner rejected, by project and rule kind.",
+    "Sections the scanner rejected, by project and rule kind.",
     ["project", "rule"],
 )
 # A skipped project does not fail the run, so this is the only signal that a

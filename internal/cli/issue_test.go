@@ -18,12 +18,15 @@ import (
 // comment operations: a query that touches comments is an unexpected query, so
 // any comment write fails the claim.
 type issueAPI struct {
-	mu         sync.Mutex
-	token      string
-	repos      map[string]*ghRepo
-	calls      int
-	ops        []string
-	failFinish int
+	mu              sync.Mutex
+	token           string
+	repos           map[string]*ghRepo
+	calls           int
+	ops             []string
+	failFinish      int
+	failIssueType   bool
+	readError       string
+	readErrorNoData bool
 	// failCreateOnce answers the first createLabel with "already been taken"
 	// after creating it, so the client re-reads.
 	failCreateOnce bool
@@ -41,6 +44,7 @@ type ghIssue struct {
 	Title  string
 	Body   string
 	State  string
+	Type   string
 	Labels map[string]string
 }
 
@@ -72,6 +76,12 @@ func (f *issueAPI) addPull(owner, name string, n int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.repo(owner, name).Pulls[n] = true
+}
+
+func (f *issueAPI) setIssueType(owner, name string, n int, issueType string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.repo(owner, name).Issues[n].Type = issueType
 }
 
 func (f *issueAPI) dropLabel(owner, name string) {
@@ -136,9 +146,27 @@ func (f *issueAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.ops = append(f.ops, op)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if err != nil {
+	if op == "read" && f.readError != "" {
+		response := map[string]any{"errors": []map[string]string{{"message": f.readError}}}
+		if !f.readErrorNoData {
+			response["data"] = data
+		}
+		_ = json.NewEncoder(w).Encode(response)
+		return
+	}
+	if err != nil && (op != "read" || !f.failIssueType) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"errors": []map[string]string{{"message": err.Error()}},
+		})
+		return
+	}
+	if op == "read" && f.failIssueType {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": data,
+			"errors": []map[string]any{{
+				"message": "issueType is unavailable",
+				"path":    []string{"repository", "issue", "issueType"},
+			}},
 		})
 		return
 	}
@@ -196,9 +224,17 @@ func (f *issueAPI) read(vars map[string]any) map[string]any {
 		"id": repo.ID, "label": label,
 		"issue": map[string]any{
 			"id": iss.ID, "title": iss.Title, "body": iss.Body, "state": iss.State,
-			"labels": map[string]any{"nodes": nodes},
+			"issueType": issueTypeValue(iss.Type, f.failIssueType),
+			"labels":    map[string]any{"nodes": nodes},
 		},
 	}}
+}
+
+func issueTypeValue(name string, fail bool) any {
+	if name == "" || fail {
+		return nil
+	}
+	return map[string]string{"name": name}
 }
 
 func (f *issueAPI) claim(vars map[string]any) (map[string]any, error) {
@@ -317,10 +353,81 @@ func TestClaimNamesTheBranchFromTheTitle(t *testing.T) {
 	t.Parallel()
 	f := newFakeGH()
 	f.addIssue("work", "app", 7, "fix: it", "B", "OPEN")
-	held, err := f.client(t).Claim(context.Background(), testRef(), "", false, func(title string) string { return "fix/" + title })
+	held, err := f.client(t).Claim(context.Background(), testRef(), "", false, func(title, _ string) string { return "fix/" + title })
 	if err != nil || held.branch != "fix/fix: it" {
 		t.Fatalf("got %+v %v", held, err)
 	}
+}
+
+func TestClaimUsesIssueTypeAndFallsBackWhenItCannotBeRead(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		title         string
+		issueType     string
+		failIssueType bool
+		want          string
+	}{
+		{name: "bug", title: "The cache breaks", issueType: "Bug", want: "fix/7-the-cache-breaks"},
+		{name: "feature", title: "Add export", issueType: "Feature", want: "feat/7-add-export"},
+		{name: "prefix wins", title: "docs: repair guide", issueType: "Bug", want: "docs/7-repair-guide"},
+		{name: "no type", title: "Add export", want: "chore/7-add-export"},
+		{name: "type error falls back", title: "Add export", issueType: "Feature", failIssueType: true, want: "chore/7-add-export"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFakeGH()
+			f.addIssue("acme", "example.com", 7, tt.title, "body", "OPEN")
+			if tt.issueType != "" {
+				f.setIssueType("acme", "example.com", 7, tt.issueType)
+			}
+			f.failIssueType = tt.failIssueType
+			ref := ki.IssueRef{Owner: "acme", Repo: "example.com", Number: 7}
+			held, err := f.client(t).Claim(context.Background(), ref, "", false, func(title, issueType string) string {
+				return ki.IssueBranch(ref.Number, title, issueType)
+			})
+			if err != nil || held.branch != tt.want {
+				t.Fatalf("branch %q, want %q (err %v)", held.branch, tt.want, err)
+			}
+		})
+	}
+}
+
+func TestClaimOnlyToleratesIssueTypeGraphQLErrors(t *testing.T) {
+	t.Parallel()
+	t.Run("repository missing", func(t *testing.T) {
+		t.Parallel()
+		f := newFakeGH()
+		f.readError = "Could not resolve to a Repository"
+		f.readErrorNoData = true
+		_, err := claim(f.client(t), false)
+		if err == nil || !strings.Contains(err.Error(), "was not found") {
+			t.Fatalf("claim error %v, want not found", err)
+		}
+	})
+	// GitHub answers a pull request's number with a null issue and a "could not
+	// resolve" error; the refusal must still name it a pull request.
+	t.Run("pull request number", func(t *testing.T) {
+		t.Parallel()
+		f := newFakeGH()
+		f.addPull("work", "app", 7)
+		f.readError = "Could not resolve to an Issue with the number of 7."
+		_, err := claim(f.client(t), false)
+		if err == nil || !strings.Contains(err.Error(), "is a pull request") {
+			t.Fatalf("claim error %v, want the pull request refusal", err)
+		}
+	})
+	t.Run("another field", func(t *testing.T) {
+		t.Parallel()
+		f := newFakeGH()
+		f.addIssue("work", "app", 7, "Fix from title", "body", "OPEN")
+		f.readError = "permission denied while reading labels"
+		_, err := claim(f.client(t), false)
+		if err == nil || !strings.Contains(err.Error(), f.readError) {
+			t.Fatalf("claim error %v, want %q", err, f.readError)
+		}
+	})
 }
 
 func TestClaimCreatesTheLabel(t *testing.T) {
