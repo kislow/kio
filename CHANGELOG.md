@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/kislow/kio/compare/v0.2.2...v0.2.3) (2026-11-12)
+
+
+### Bug Fixes
+
+* **lint:** exclude gosec's unstable taint rules so release builds pass ([#9](https://github.com/kislow/kio/issues/9)) ([332aba7](https://github.com/kislow/kio/commit/332aba7e0aa6349b430340b4c28e7ee59a7291d4))
+
 ## [0.2.2](https://github.com/kislow/kio/compare/v0.2.1...v0.2.2) (2026-11-12)
 
 
