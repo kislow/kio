@@ -303,7 +303,7 @@ func (a *App) queueStart(ctx context.Context, id string) error {
 	if rerr != nil || cur.Starting == nil {
 		return err // waiting again, or cancelled
 	}
-	if _, serr := os.Stat(filepath.Join(a.jobsDir(), id, "result.json")); err != nil && serr != nil {
+	if _, serr := os.Stat(filepath.Join(a.jobsDir(), id, "result.json")); err != nil && serr != nil { // #nosec G703 -- id passed ValidJobID in claimQueued
 		a.recordUnstarted(e, err)
 	}
 	return errors.Join(err, ki.RemoveQueueEntry(a.jobsDir(), id))

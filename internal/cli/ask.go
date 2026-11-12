@@ -249,7 +249,7 @@ func (a *App) ask(ctx context.Context, args []string) error {
 	// outside what the agent reads, and goes with it when the run ends.
 	p.mcpPath = filepath.Join(jobDir, "mcp.json")
 	defer func() {
-		_ = os.Remove(p.mcpPath)  // best effort: the run already ended
+		_ = os.Remove(p.mcpPath)  // #nosec G703 -- a file in the job folder ki just made; best effort, the run already ended
 		_ = os.RemoveAll(scratch) // best effort: nothing in it is kept
 	}()
 

@@ -160,7 +160,7 @@ func TestPositionalAgentShorthand(t *testing.T) {
 		if err := e.app.Run(t.Context(), []string{"codex", "--force", "--mode", "auto", "--", "--agent", "x"}); err != nil {
 			t.Fatal(err)
 		}
-		if want := []string{"codex", "--approve-for-me", "--agent", "x"}; !slices.Equal(e.execd, want) {
+		if want := []string{"codex", "--approve-for-me", "-c", "sandbox_workspace_write.network_access=true", "--agent", "x"}; !slices.Equal(e.execd, want) {
 			t.Fatalf("argv %v, want %v", e.execd, want)
 		}
 		if strings.Contains(e.stderr(), "planner") {

@@ -82,7 +82,7 @@ func (a *App) tmux() (Tmux, error) {
 	return func(ctx context.Context, args ...string) (string, error) {
 		ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, bin, a.tmuxArgs(args...)...) // #nosec G204 -- fixed binary, arguments from ki itself
+		cmd := exec.CommandContext(ctx, bin, a.tmuxArgs(args...)...) // #nosec G204 G702 -- fixed binary, arguments from ki itself
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()

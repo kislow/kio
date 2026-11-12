@@ -94,7 +94,7 @@ func (a *App) attempt(ctx context.Context, p *prepared, da delegateArgs, prov ki
 	default:
 		brief = ki.WrapTask(da.Task, da.Draft)
 	}
-	if err := os.WriteFile(filepath.Join(jobDir, "brief.md"), []byte(brief+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(jobDir, "brief.md"), []byte(brief+"\n"), 0o600); err != nil { // #nosec G703 -- the job folder ki created for a generated id
 		return r, fmt.Errorf("writing the brief: %w", err)
 	}
 	if da.setup == nil && da.brief == nil {
@@ -500,7 +500,7 @@ func (a *App) addWorktree(ctx context.Context, root, id, branch string) (dir str
 		fmt.Fprintf(a.Stderr, "ki: could not fetch %s (%s); starting from the last fetch\n", base, err)
 	}
 	dir = filepath.Join(filepath.Dir(root), filepath.Base(root)+"-worktrees", id)
-	if err := os.MkdirAll(filepath.Dir(dir), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dir), 0o750); err != nil { // #nosec G703 -- the worktrees folder next to the repo root, named by ki
 		return "", fmt.Errorf("creating %s: %w", filepath.Dir(dir), err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
@@ -510,7 +510,7 @@ func (a *App) addWorktree(ctx context.Context, root, id, branch string) (dir str
 	// The worktree list itself is a shared file too, so a lock there is retried.
 	var out []byte
 	for attempt := 0; attempt < worktreeAttempts; attempt++ {
-		cmd := exec.CommandContext(ctx, "git", "worktree", "add", "--quiet", "--no-track", "-b", branch, dir, base) // #nosec G204 -- fixed binary, arguments from ki itself
+		cmd := exec.CommandContext(ctx, "git", "worktree", "add", "--quiet", "--no-track", "-b", branch, dir, base) // #nosec G204 G702 -- fixed binary; branch is a type, issue number and slug of letters and digits, base a ref of the local repo
 		cmd.Dir = root
 		var err error
 		if out, err = cmd.CombinedOutput(); err == nil {

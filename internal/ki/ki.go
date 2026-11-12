@@ -285,17 +285,26 @@ func BuildLaunch(in LaunchInput) Launch {
 	return Launch{Argv: argv, Env: env}
 }
 
-// codexResumeFlags rewrites --sandbox X as -c sandbox_mode="X": `codex exec resume`
-// rejects --sandbox (codex-cli 0.167.0) but takes -c, so a resumed ask stays read-only.
+// codexResumeFlags rewrites the permission flags `codex exec resume` rejects
+// (codex-cli 0.167.0) into the config entries it takes: --sandbox X becomes
+// -c sandbox_mode="X", so a resumed ask stays read-only, and --approve-for-me
+// becomes the approval policy and reviewer it stands for, so a resumed job
+// keeps its automatic review. Other -c entries, the network setting included, pass through.
 func codexResumeFlags(args []string) []string {
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
-		if (args[i] == "--sandbox" || args[i] == "-s") && i+1 < len(args) {
+		switch {
+		case (args[i] == "--sandbox" || args[i] == "-s") && i+1 < len(args):
 			out = append(out, "-c", fmt.Sprintf("sandbox_mode=%q", args[i+1]))
 			i++
-			continue
+		case args[i] == "--approve-for-me":
+			out = append(out,
+				"-c", `approval_policy="on-request"`,
+				"-c", `approvals_reviewer="auto_review"`,
+				"-c", `sandbox_mode="workspace-write"`)
+		default:
+			out = append(out, args[i])
 		}
-		out = append(out, args[i])
 	}
 	return out
 }

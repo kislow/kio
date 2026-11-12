@@ -16,12 +16,18 @@ var commitType = regexp.MustCompile(`(?i)^(feat|fix|chore|docs|refactor|ci|perf|
 const slugMax = 40
 
 // IssueBranch is <type>/<number>-<slug> for an issue titled title. The type is
-// the title's Conventional Commits prefix, chore without one; the slug is the
-// rest of the title.
-func IssueBranch(number int, title string) string {
+// the title's Conventional Commits prefix, then its native GitHub type, then chore.
+func IssueBranch(number int, title, issueType string) string {
 	typ, rest := "chore", strings.TrimSpace(title)
 	if m := commitType.FindStringSubmatch(rest); m != nil {
 		typ, rest = strings.ToLower(m[1]), rest[len(m[0]):]
+	} else {
+		switch strings.ToLower(issueType) {
+		case "bug":
+			typ = "fix"
+		case "feature":
+			typ = "feat"
+		}
 	}
 	name := fmt.Sprintf("%s/%d", typ, number)
 	if s := slug(rest); s != "" {

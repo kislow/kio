@@ -213,10 +213,11 @@ class SyncResult:
     # batch, "backoff" when the project's last runs failed (nothing was cloned, so
     # `deferred` stays 0), otherwise "quiet" for the quiet period; None if none were.
     deferred_reason: str | None = None
-    # Paths are reported only for non-sensitive projects.
+    # Paths are reported only for non-sensitive projects. One file, however many
+    # of its sections were rejected.
     rejected_paths: list[str] = field(default_factory=list)
-    # Why documents were rejected, never the matched text: rule kinds per path
-    # (non-sensitive projects only) and, for every project, documents per rule kind.
+    # Why sections were rejected, never the matched text: rule kinds per section
+    # key (non-sensitive projects only) and, for every project, sections per rule kind.
     rejected_rules: dict[str, list[str]] = field(default_factory=dict)
     rejected_rule_counts: dict[str, int] = field(default_factory=dict)
     deferred_paths: list[str] = field(default_factory=list)
@@ -578,7 +579,10 @@ def report_rejection(
     path: str,
     findings: Sequence[scanner.Finding],
 ) -> None:
-    """Records why the scanner rejected one document: rule kinds and lines, never the match."""
+    """Records why the scanner rejected one section: rule kinds and lines, never the match.
+
+    `path` is the section key. A sensitive project keeps it out of the log and the result.
+    """
     lines: dict[str, list[int]] = {}
     for f in findings:
         lines.setdefault(f.kind, []).append(f.line)
@@ -987,14 +991,19 @@ async def _clone_and_ingest(
 
             lanes: dict[str, Pending] = {}
             pending = [(d, None) for d in todo.add] + list(todo.replace)
-            scanned: dict[str, list[scanner.Finding]] = {}
             for doc, old in pending:
-                path = units[doc.path].path
-                if path not in scanned:
-                    scanned[path] = scanner.scan(docs[path][1])
-                    if scanned[path]:
-                        report_rejection(result, project, path, scanned[path])
-                if scanned[path]:
+                # The section text, not the whole file: one matching line drops that section.
+                # The title and heading path reach Graphiti too (episode name, source
+                # description), and a heading with no text of its own is in no section's
+                # text, so they are scanned as line 0. Such a hit is reported under the
+                # file path, because the section key carries the heading.
+                unit = units[doc.path]
+                in_heading = [scanner.Finding(f.kind, 0) for f in scanner.scan(unit.context)]
+                findings = in_heading + scanner.scan(unit.text)
+                if findings:
+                    report_rejection(
+                        result, project, unit.path if in_heading else doc.path, findings
+                    )
                     result.rejected += 1
                     if not project.sensitive:
                         note(result.rejected_paths, doc.path)

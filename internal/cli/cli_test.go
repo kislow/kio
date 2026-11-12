@@ -400,7 +400,7 @@ func TestRunMode(t *testing.T) {
 	}{
 		{"default is ask", "", nil, []string{"--sandbox", "workspace-write", "--ask-for-approval", "on-request"}, "mode=ask", ""},
 		{"KI_MODE sets the default", "skip", nil, []string{"--dangerously-bypass-approvals-and-sandbox"}, "mode=skip", ""},
-		{"--mode beats KI_MODE", "skip", []string{"--mode", "auto"}, []string{"--approve-for-me"}, "mode=auto", ""},
+		{"--mode beats KI_MODE", "skip", []string{"--mode", "auto"}, []string{"--approve-for-me", "-c", "sandbox_workspace_write.network_access=true"}, "mode=auto", ""},
 		{"agent args win", "", []string{"--mode", "auto", "--", "--sandbox", "read-only"}, []string{"--sandbox", "read-only"}, "mode=set by agent args", ""},
 		{"unknown mode", "", []string{"--mode", "yolo"}, nil, "", `unknown mode "yolo"`},
 		{"bad KI_MODE", "always", nil, nil, "", `unknown mode "always"`},

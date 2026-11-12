@@ -69,8 +69,11 @@ func permissionsFor(agent string) (permissions, bool) {
 		return permissions{
 			modes: map[Mode][]string{
 				// Explicit approval policy, so a config.toml default of never cannot turn ask off.
-				ModeAsk:  {"--sandbox", "workspace-write", "--ask-for-approval", "on-request"},
-				ModeAuto: {"--approve-for-me"},
+				ModeAsk: {"--sandbox", "workspace-write", "--ask-for-approval", "on-request"},
+				// The workspace-write sandbox keeps network access off unless set, and
+				// then every request waits on the automatic reviewer; Claude Code has
+				// network access in auto mode, so Codex gets it too.
+				ModeAuto: {"--approve-for-me", "-c", "sandbox_workspace_write.network_access=true"},
 				ModeSkip: {"--dangerously-bypass-approvals-and-sandbox"},
 			},
 			owned: []string{"--sandbox", "-s", "--ask-for-approval", "-a", "--approve-for-me", "--dangerously-bypass-approvals-and-sandbox"},

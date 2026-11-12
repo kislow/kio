@@ -108,6 +108,9 @@ jobs:
           version: v2.15.0   # keep in step with GOLANGCI_VERSION in the Makefile
           # Skip the schema download: it timed out on GitHub runners and failed the job.
           verify: false
+          # A cache restored from another commit makes gosec's taint analysis report
+          # different false positives run to run; a cold cache gives the same result.
+          skip-cache: true
       - run: go test -race -coverprofile=cover.out ./...
       - name: Coverage on the boundary packages
         run: go run ./internal/tools/covercheck -min 80 cover.out pkg/scope pkg/config pkg/projects internal/ki internal/server internal/pack internal/cli internal/vault internal/redact internal/standup
