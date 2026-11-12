@@ -34,6 +34,12 @@ linters:
     sloglint:
       no-mixed-args: true
       kv-only: true
+    gosec:
+      # The taint rules (command injection, path traversal, SSRF) report a
+      # different set of sites run to run on the same tree, with or without a
+      # lint cache, so they fail CI at random. G204, G304 and G107 still cover
+      # commands, file paths and URLs built from variables.
+      excludes: [G702, G703, G704]
     revive:
       rules:
         - name: exported
